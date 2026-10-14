@@ -3,7 +3,7 @@ module.exports = {
     {
       name: "agy-gram",
       script: "./bin/agy-gram",
-      cwd: "/home/huda/repo/agy-gram",
+      cwd: "./",
       instances: 1,
       exec_mode: "fork",
       autorestart: true,

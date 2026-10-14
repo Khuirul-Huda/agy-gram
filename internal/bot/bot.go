@@ -86,9 +86,17 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle("/status", b.handler.HandleStatus)
 	b.teleBot.Handle("/mode", b.handler.HandleMode)
 	b.teleBot.Handle("/model", b.handler.HandleModel)
+	b.teleBot.Handle("/effort", b.handler.HandleEffort)
 	b.teleBot.Handle("/thinking", b.handler.HandleThinking)
 	b.teleBot.Handle("/stop", b.handler.HandleCancel)
 	b.teleBot.Handle("/cancel", b.handler.HandleCancel)
+
+	// Inline keyboard callback handlers
+	b.teleBot.Handle(&tele.Btn{Unique: "model_set"}, b.handler.HandleSetModelCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "model_reset"}, b.handler.HandleResetModelCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "model_menu"}, b.handler.HandleModelMenuCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "effort_menu"}, b.handler.HandleEffortMenuCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "effort_set"}, b.handler.HandleSetEffortCallback)
 
 	// Plain text messages routed as agent prompts
 	b.teleBot.Handle(tele.OnText, b.handler.HandlePrompt)

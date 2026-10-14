@@ -32,6 +32,11 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Errorf("expected model 'gemini-2.5-pro', got '%s'", s.GetModel())
 	}
 
+	s.SetEffort("high")
+	if s.GetEffort() != "high" {
+		t.Errorf("expected effort 'high', got '%s'", s.GetEffort())
+	}
+
 	s.SetThinkingEnabled(true)
 	if !s.IsThinkingEnabled() {
 		t.Errorf("expected thinkingEnabled to be true")

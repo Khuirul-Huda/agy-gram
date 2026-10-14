@@ -10,11 +10,14 @@ import (
 const maxMessageLength = 3800
 
 var (
-	headerRegex = regexp.MustCompile(`(?m)^#{1,6}\s+(.+)$`)
-	boldRegex   = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	strikeRegex = regexp.MustCompile(`~~(.+?)~~`)
-	linkRegex   = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^\)]+)\)`)
-	inlineRegex = regexp.MustCompile("`([^`\n]+)`")
+	headerRegex      = regexp.MustCompile(`(?m)^#{1,6}\s+(.+)$`)
+	boldRegex        = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	italicRegex      = regexp.MustCompile(`\*([^\*\s\n](?:[^\*\n]*?[^\*\s\n])?)\*`)
+	italicUnderRegex = regexp.MustCompile(`(^|[\s(])_([^_\s\n](?:[^_\n]*?[^_\s\n])?)_($|[\s).,!?])`)
+	blockquoteRegex  = regexp.MustCompile(`(?m)^&gt;\s*(.+)$`)
+	strikeRegex      = regexp.MustCompile(`~~(.+?)~~`)
+	linkRegex        = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^\)]+)\)`)
+	inlineRegex      = regexp.MustCompile("`([^`\n]+)`")
 )
 
 // SplitMessage chunks a long text message into safe sizes for Telegram (limit: 4096).
@@ -150,13 +153,20 @@ func MarkdownToTelegramHTML(input string) string {
 	// 5. Bold (**text** -> <b>text</b>)
 	processed = boldRegex.ReplaceAllString(processed, "<b>$1</b>")
 
-	// 6. Strikethrough (~~text~~ -> <s>text</s>)
+	// 6. Italic (*text* or _text_ -> <i>text</i>)
+	processed = italicRegex.ReplaceAllString(processed, "<i>$1</i>")
+	processed = italicUnderRegex.ReplaceAllString(processed, "$1<i>$2</i>$3")
+
+	// 7. Blockquotes (> quote -> <blockquote>quote</blockquote>)
+	processed = blockquoteRegex.ReplaceAllString(processed, "<blockquote>$1</blockquote>")
+
+	// 8. Strikethrough (~~text~~ -> <s>text</s>)
 	processed = strikeRegex.ReplaceAllString(processed, "<s>$1</s>")
 
-	// 7. Links ([title](url) -> <a href="url">title</a>)
+	// 9. Links ([title](url) -> <a href="url">title</a>)
 	processed = linkRegex.ReplaceAllString(processed, `<a href="$2">$1</a>`)
 
-	// 8. Restore inline code blocks
+	// 10. Restore inline code blocks
 	for i, ic := range inlineCodes {
 		placeholder := html.EscapeString(fmt.Sprintf(inlinePlaceholder, i))
 		processed = strings.ReplaceAll(processed, placeholder, ic)

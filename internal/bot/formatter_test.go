@@ -75,3 +75,21 @@ func TestMarkdownToTelegramHTML_LinksAndHeaders(t *testing.T) {
 		t.Errorf("link not converted to anchor: %s", output)
 	}
 }
+
+func TestMarkdownToTelegramHTML_ItalicsAndQuotes(t *testing.T) {
+	input := "*italic star* and _italic under_\n> This is a quote.\nAlso variable_name_test should remain intact."
+	output := MarkdownToTelegramHTML(input)
+
+	if !strings.Contains(output, "<i>italic star</i>") {
+		t.Errorf("asterisk italic failed: %s", output)
+	}
+	if !strings.Contains(output, "<i>italic under</i>") {
+		t.Errorf("underscore italic failed: %s", output)
+	}
+	if !strings.Contains(output, "<blockquote>This is a quote.</blockquote>") {
+		t.Errorf("blockquote conversion failed: %s", output)
+	}
+	if strings.Contains(output, "variable<i>name</i>test") {
+		t.Errorf("snake_case incorrectly converted to italic: %s", output)
+	}
+}

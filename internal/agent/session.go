@@ -12,6 +12,7 @@ type Session struct {
 	continueSession bool
 	mode            string
 	model           string
+	effort          string
 	thinkingEnabled bool
 }
 
@@ -21,6 +22,7 @@ func NewSession(defaultMode, defaultModel string, defaultThinking bool) *Session
 		continueSession: false,
 		mode:            defaultMode,
 		model:           defaultModel,
+		effort:          "",
 		thinkingEnabled: defaultThinking,
 	}
 }
@@ -65,6 +67,20 @@ func (s *Session) SetModel(model string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.model = model
+}
+
+// GetEffort returns the current reasoning effort override.
+func (s *Session) GetEffort() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.effort
+}
+
+// SetEffort sets the reasoning effort override.
+func (s *Session) SetEffort(effort string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.effort = effort
 }
 
 // IsThinkingEnabled returns whether verbose thinking is enabled.

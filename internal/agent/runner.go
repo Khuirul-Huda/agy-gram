@@ -267,6 +267,9 @@ func (r *Runner) buildArgs(opts domain.PromptOptions) []string {
 	if opts.Model != "" {
 		args = append(args, "--model", opts.Model)
 	}
+	if opts.Effort != "" {
+		args = append(args, "--effort", opts.Effort)
+	}
 
 	return args
 }

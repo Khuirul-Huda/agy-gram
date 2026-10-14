@@ -81,8 +81,8 @@ ALLOWED_USER_IDS=123456789
 # Path binary Antigravity CLI (default: agy)
 AGY_BIN_PATH=agy
 
-# Working directory saat menjalankan agy
-AGY_WORKING_DIR=/home/huda
+# Working directory saat menjalankan agy (misal /home/username/workspace atau ./)
+AGY_WORKING_DIR=./
 
 # Batas waktu eksekusi per prompt (dalam menit, default: 5)
 AGY_TIMEOUT_MINUTES=5
@@ -144,3 +144,9 @@ pm2 save
 1. **Whitelist Middleware**: Bot tidak akan memproses atau merespons instruksi dari User ID yang tidak terdaftar di `ALLOWED_USER_IDS`.
 2. **Localhost Only**: Menggunakan Telegram Long-Polling via HTTPS keluar (`outbound-only`), sehingga **tidak perlu membuka port router/firewall UFW** ke internet publik.
 3. **Graceful Shutdown**: Menangani sinyal `SIGINT` dan `SIGTERM` secara bersih, memastikan semua sub-proses dan koneksi ditutup dengan tertib.
+
+---
+
+## ⚠️ Penafian (Disclaimer)
+
+Proyek ini adalah perangkat lunak open-source independen yang dikembangkan semata-mata untuk tujuan edukasi, riset, dan otomatisasi pribadi. Proyek ini **tidak** berafiliasi, didukung, disponsori, atau terkait secara resmi dengan Google, Antigravity, Telegram, maupun anak perusahaan dan afiliasi terkait lainnya. Semua nama produk, logo, merek dagang, dan merek dagang terdaftar adalah hak milik dari masing-masing pemegang haknya.

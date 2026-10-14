@@ -39,7 +39,8 @@ Jembatan kontrol Telegram untuk Antigravity CLI di server lokal Anda.
 • /new - Mulai percakapan sesi baru
 • /status - Cek penggunaan resource server (RAM, CPU, disk)
 • /mode [auto|plan|accept-edits] - Cek atau ubah mode eksekusi
-• /model [nama_model] - Cek atau ubah model AI
+• /model [opsional: nama_model] - Menu interaktif tombol pilihan model AI
+• /effort [opsional: low|med|high|xhigh|max] - Menu interaktif tingkat reasoning effort
 • /thinking [on|off] - Toggle verbose thinking stream
 • /stop - Hentikan paksa proses agent yang sedang berjalan
 
@@ -67,7 +68,8 @@ func (h *Handler) HandleHelp(c tele.Context) error {
 4. <b>Konfigurasi Runtime:</b>
    • <code>/status</code> : Cek RAM, ZRAM, SSD, dan status server.
    • <code>/mode [opsi]</code> : Ganti mode agent (misal: <code>/mode plan</code>).
-   • <code>/model [opsi]</code> : Ganti model (misal: <code>/model flash</code>).
+   • <code>/model</code> : Tampilkan tombol interaktif untuk memilih model AI.
+   • <code>/effort</code> : Tampilkan tombol interaktif untuk memilih reasoning effort.
    • <code>/thinking [on|off]</code> : Aktifkan / matikan log proses berpikir AI.`
 
 	return c.Send(msg, tele.ModeHTML)
@@ -94,6 +96,10 @@ func (h *Handler) HandleStatus(c tele.Context) error {
 	if model == "" {
 		model = "default (CLI config)"
 	}
+	effort := h.session.GetEffort()
+	if effort == "" {
+		effort = "default"
+	}
 
 	sessionStatus := "Baru (Next: Fresh)"
 	if h.session.ShouldContinue() {
@@ -119,6 +125,7 @@ func (h *Handler) HandleStatus(c tele.Context) error {
 • <b>Session:</b> %s
 • <b>Mode:</b> %s
 • <b>Model:</b> %s
+• <b>Reasoning Effort:</b> %s
 • <b>Verbose Thinking:</b> %s`,
 		html.EscapeString(status.CPUModel),
 		html.EscapeString(status.Uptime),
@@ -129,6 +136,7 @@ func (h *Handler) HandleStatus(c tele.Context) error {
 		html.EscapeString(sessionStatus),
 		html.EscapeString(mode),
 		html.EscapeString(model),
+		html.EscapeString(effort),
 		thinkingStatus,
 	)
 
@@ -151,15 +159,12 @@ func (h *Handler) HandleMode(c tele.Context) error {
 	return c.Send(fmt.Sprintf("✅ Mode eksekusi diubah menjadi: <b>%s</b>", html.EscapeString(args)), tele.ModeHTML)
 }
 
-// HandleModel displays or updates the agent model.
+// HandleModel displays interactive inline buttons or updates the agent model.
 func (h *Handler) HandleModel(c tele.Context) error {
 	args := strings.TrimSpace(c.Message().Payload)
 	if args == "" {
-		current := h.session.GetModel()
-		if current == "" {
-			current = "default (CLI config)"
-		}
-		return c.Send(fmt.Sprintf("ℹ️ Model override saat ini: <b>%s</b>\n\nUbah dengan: <code>/model [nama_model]</code> (atau <code>/model reset</code>)", html.EscapeString(current)), tele.ModeHTML)
+		text, menu := h.buildModelMenu()
+		return c.Send(text, menu, tele.ModeHTML)
 	}
 
 	if args == "reset" || args == "default" {
@@ -169,6 +174,190 @@ func (h *Handler) HandleModel(c tele.Context) error {
 
 	h.session.SetModel(args)
 	return c.Send(fmt.Sprintf("✅ Model override disetel ke: <b>%s</b>", html.EscapeString(args)), tele.ModeHTML)
+}
+
+// HandleEffort displays interactive inline buttons or updates the reasoning effort.
+func (h *Handler) HandleEffort(c tele.Context) error {
+	args := strings.ToLower(strings.TrimSpace(c.Message().Payload))
+	if args == "" {
+		text, menu := h.buildEffortMenu()
+		return c.Send(text, menu, tele.ModeHTML)
+	}
+
+	if args == "reset" || args == "default" {
+		h.session.SetEffort("")
+		return c.Send("✅ Reasoning effort direset ke konfigurasi default CLI.")
+	}
+
+	validEfforts := map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+	if !validEfforts[args] {
+		return c.Send("❌ Tingkat effort tidak valid. Pilihan: <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, atau <code>default</code>", tele.ModeHTML)
+	}
+
+	h.session.SetEffort(args)
+	return c.Send(fmt.Sprintf("✅ Reasoning effort disetel ke: <b>%s</b>", html.EscapeString(args)), tele.ModeHTML)
+}
+
+// HandleSetModelCallback processes model selection inline button clicks.
+func (h *Handler) HandleSetModelCallback(c tele.Context) error {
+	_ = c.Respond()
+	if cb := c.Callback(); cb != nil && cb.Data != "" {
+		h.session.SetModel(cb.Data)
+	}
+	text, menu := h.buildModelMenu()
+	return c.Edit(text, menu, tele.ModeHTML)
+}
+
+// HandleResetModelCallback resets model override back to CLI default.
+func (h *Handler) HandleResetModelCallback(c tele.Context) error {
+	_ = c.Respond()
+	h.session.SetModel("")
+	text, menu := h.buildModelMenu()
+	return c.Edit(text, menu, tele.ModeHTML)
+}
+
+// HandleModelMenuCallback navigates back to the model selection menu.
+func (h *Handler) HandleModelMenuCallback(c tele.Context) error {
+	_ = c.Respond()
+	text, menu := h.buildModelMenu()
+	return c.Edit(text, menu, tele.ModeHTML)
+}
+
+// HandleEffortMenuCallback opens the reasoning effort selection menu.
+func (h *Handler) HandleEffortMenuCallback(c tele.Context) error {
+	_ = c.Respond()
+	text, menu := h.buildEffortMenu()
+	return c.Edit(text, menu, tele.ModeHTML)
+}
+
+// HandleSetEffortCallback processes reasoning effort inline button clicks.
+func (h *Handler) HandleSetEffortCallback(c tele.Context) error {
+	_ = c.Respond()
+	if cb := c.Callback(); cb != nil {
+		if cb.Data == "default" {
+			h.session.SetEffort("")
+		} else if cb.Data != "" {
+			h.session.SetEffort(cb.Data)
+		}
+	}
+	text, menu := h.buildEffortMenu()
+	return c.Edit(text, menu, tele.ModeHTML)
+}
+
+func (h *Handler) buildModelMenu() (string, *tele.ReplyMarkup) {
+	currentModel := h.session.GetModel()
+	if currentModel == "" {
+		currentModel = "default (CLI config)"
+	}
+	currentEffort := h.session.GetEffort()
+	if currentEffort == "" {
+		currentEffort = "default"
+	}
+
+	text := fmt.Sprintf(`🤖 <b>Pengaturan Model & Reasoning Effort</b>
+
+• <b>Model Aktif:</b> <code>%s</code>
+• <b>Reasoning Effort:</b> <code>%s</code>
+
+Pilih model di bawah atau ubah reasoning effort:`,
+		html.EscapeString(currentModel),
+		html.EscapeString(currentEffort),
+	)
+
+	menu := &tele.ReplyMarkup{}
+
+	type modelOption struct {
+		ID   string
+		Name string
+	}
+	models := []modelOption{
+		{"gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"},
+		{"gemini-3.8-flash-medium", "Gemini 3.8 Flash (Med)"},
+		{"gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"},
+		{"claude-sonnet-4-6", "Claude Sonnet 4.6"},
+		{"claude-opus-4-6-thinking", "Claude Opus 4.6"},
+		{"gpt-oss-120b-medium", "GPT-OSS 120B"},
+	}
+
+	var rows []tele.Row
+	for i := 0; i < len(models); i += 2 {
+		var rowBtns []tele.Btn
+		m1 := models[i]
+		label1 := m1.Name
+		if h.session.GetModel() == m1.ID {
+			label1 = "✅ " + label1
+		}
+		btn1 := menu.Data(label1, "model_set", m1.ID)
+		rowBtns = append(rowBtns, btn1)
+
+		if i+1 < len(models) {
+			m2 := models[i+1]
+			label2 := m2.Name
+			if h.session.GetModel() == m2.ID {
+				label2 = "✅ " + label2
+			}
+			btn2 := menu.Data(label2, "model_set", m2.ID)
+			rowBtns = append(rowBtns, btn2)
+		}
+		rows = append(rows, menu.Row(rowBtns...))
+	}
+
+	btnEffort := menu.Data(fmt.Sprintf("🎯 Atur Effort (%s)", currentEffort), "effort_menu")
+	btnReset := menu.Data("🔄 Reset Default CLI", "model_reset")
+	rows = append(rows, menu.Row(btnEffort), menu.Row(btnReset))
+
+	menu.Inline(rows...)
+	return text, menu
+}
+
+func (h *Handler) buildEffortMenu() (string, *tele.ReplyMarkup) {
+	currentEffort := h.session.GetEffort()
+	if currentEffort == "" {
+		currentEffort = "default"
+	}
+
+	text := fmt.Sprintf(`🎯 <b>Pilih Reasoning Effort</b>
+
+Tingkat penalaran saat ini: <code>%s</code>
+
+Pilih kedalaman penalaran model AI yang Anda inginkan:`,
+		html.EscapeString(currentEffort),
+	)
+
+	menu := &tele.ReplyMarkup{}
+
+	efforts := []string{"low", "medium", "high", "xhigh", "max"}
+	var row1 []tele.Btn
+	for _, ef := range efforts[:3] {
+		label := ef
+		if h.session.GetEffort() == ef {
+			label = "✅ " + label
+		}
+		row1 = append(row1, menu.Data(label, "effort_set", ef))
+	}
+
+	var row2 []tele.Btn
+	for _, ef := range efforts[3:] {
+		label := ef
+		if h.session.GetEffort() == ef {
+			label = "✅ " + label
+		}
+		row2 = append(row2, menu.Data(label, "effort_set", ef))
+	}
+	defaultLabel := "default"
+	if h.session.GetEffort() == "" {
+		defaultLabel = "✅ default"
+	}
+	row2 = append(row2, menu.Data(defaultLabel, "effort_set", "default"))
+
+	btnBack := menu.Data("⬅️ Kembali ke Menu Model", "model_menu")
+
+	menu.Inline(
+		menu.Row(row1...),
+		menu.Row(row2...),
+		menu.Row(btnBack),
+	)
+	return text, menu
 }
 
 // HandleThinking displays or updates the verbose thinking setting.
@@ -219,7 +408,10 @@ func (h *Handler) HandlePrompt(c tele.Context) error {
 		return c.Send("⚠️ Agent sedang memproses permintaan sebelumnya. Gunakan /stop jika ingin membatalkannya.")
 	}
 
-	// Start periodic typing indicator ticker
+	// 1. Fast ACK: Send immediate reply to acknowledge receipt and prevent client timeout
+	ackMsg, ackErr := c.Bot().Send(c.Recipient(), "⏳ <i>Sedang memproses instruksi Anda...</i>", tele.ModeHTML)
+
+	// 2. Start continuous periodic typing indicator ticker
 	stopTyping := make(chan struct{})
 	go h.startTypingTicker(c, stopTyping)
 	defer close(stopTyping)
@@ -229,6 +421,7 @@ func (h *Handler) HandlePrompt(c tele.Context) error {
 		ContinueSession: h.session.ShouldContinue(),
 		Mode:            h.session.GetMode(),
 		Model:           h.session.GetModel(),
+		Effort:          h.session.GetEffort(),
 		VerboseThinking: h.session.IsThinkingEnabled(),
 		OnCommand: func(cmd string) {
 			escapedCmd := html.EscapeString(cmd)
@@ -253,6 +446,11 @@ func (h *Handler) HandlePrompt(c tele.Context) error {
 	output, err := h.runner.Execute(context.Background(), opts)
 	elapsed := time.Since(startTime).Round(time.Millisecond)
 
+	// Clean up initial acknowledgment placeholder message
+	if ackErr == nil && ackMsg != nil {
+		_ = c.Bot().Delete(ackMsg)
+	}
+
 	if err != nil {
 		if errors.Is(err, domain.ErrExecutionCancelled) {
 			return c.Send("🛑 Permintaan dibatalkan.")
@@ -266,12 +464,12 @@ func (h *Handler) HandlePrompt(c tele.Context) error {
 	// Send output with chunks rendered in Telegram HTML
 	chunks := SplitMessage(output)
 	for i, chunk := range chunks {
+		htmlContent := MarkdownToTelegramHTML(chunk)
 		if i == len(chunks)-1 {
-			// Append elapsed time footer on the last chunk
-			chunk = fmt.Sprintf("%s\n\n⏱️ <i>(Selesai dalam %v)</i>", chunk, elapsed)
+			// Append elapsed time footer on the last chunk AFTER html conversion (prevents <i> escaping bug)
+			htmlContent = fmt.Sprintf("%s\n\n⏱️ <i>(Selesai dalam %v)</i>", htmlContent, elapsed)
 		}
 
-		htmlContent := MarkdownToTelegramHTML(chunk)
 		if err := c.Send(htmlContent, tele.ModeHTML); err != nil {
 			// Fallback to legacy markdown if HTML parser encounters an issue
 			if errMd := c.Send(chunk, tele.ModeMarkdown); errMd != nil {

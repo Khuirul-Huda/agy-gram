@@ -10,6 +10,7 @@ type PromptOptions struct {
 	ContinueSession bool
 	Mode            string
 	Model           string
+	Effort          string
 	VerboseThinking bool
 	OnCommand       func(cmd string)
 	OnThinking      func(thinking string)
@@ -40,6 +41,8 @@ type SessionManager interface {
 	SetMode(mode string)
 	GetModel() string
 	SetModel(model string)
+	GetEffort() string
+	SetEffort(effort string)
 	IsThinkingEnabled() bool
 	SetThinkingEnabled(enabled bool)
 	Reset()

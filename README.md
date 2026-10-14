@@ -81,8 +81,8 @@ ALLOWED_USER_IDS=123456789
 # Path to the Antigravity binary (default: agy)
 AGY_BIN_PATH=agy
 
-# Working directory where agy commands will execute
-AGY_WORKING_DIR=/home/huda
+# Working directory where agy commands will execute (e.g. /home/username/workspace or ./)
+AGY_WORKING_DIR=./
 
 # Execution timeout per prompt turn (in minutes, default: 5)
 AGY_TIMEOUT_MINUTES=5
@@ -144,3 +144,9 @@ pm2 save
 1. **User Whitelist**: Strictly enforces allowed Telegram User IDs at the middleware level.
 2. **Outbound Long-Polling**: Connects to Telegram via HTTPS outbound long-polling only; **no open inbound ports or public IP exposure required**.
 3. **Graceful Teardown**: Listens for `SIGINT` / `SIGTERM` signals to cleanly abort active child processes before shutting down.
+
+---
+
+## ⚠️ Disclaimer
+
+This project is an independent open-source tool developed strictly for educational, research, and personal automation purposes. It is **not** officially affiliated with, endorsed by, sponsored by, or associated with Google, Antigravity, Telegram, or any of their affiliates or subsidiaries. All product names, logos, brands, and registered trademarks belong to their respective owners.
