@@ -55,6 +55,14 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Errorf("expected thinkingEnabled to be true")
 	}
 
+	if s.GetWorkspace() != "" {
+		t.Errorf("expected empty initial workspace, got '%s'", s.GetWorkspace())
+	}
+	s.SetWorkspace("/home/huda/repo/Mocci")
+	if s.GetWorkspace() != "/home/huda/repo/Mocci" {
+		t.Errorf("expected workspace '/home/huda/repo/Mocci', got '%s'", s.GetWorkspace())
+	}
+
 	if s.GetLanguage() != "id" {
 		t.Errorf("expected default language 'id', got '%s'", s.GetLanguage())
 	}

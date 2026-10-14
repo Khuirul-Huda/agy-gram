@@ -55,6 +55,8 @@ func (b *Bot) registerBotCommands() {
 		{Text: "effort", Description: "Atur tingkat reasoning effort"},
 		{Text: "mode", Description: "Atur mode (auto, plan, accept-edits)"},
 		{Text: "thinking", Description: "Toggle verbose thinking stream"},
+		{Text: "sessions", Description: "Pilih / beralih riwayat sesi percakapan"},
+		{Text: "workspace", Description: "Ganti target direktori kerja AGY"},
 		{Text: "status", Description: "Cek hardware & status server"},
 		{Text: "restart", Description: "Restart aman service AGY-Gram"},
 		{Text: "stop", Description: "Hentikan proses yang sedang berjalan"},
@@ -133,6 +135,8 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle("/effort", b.handler.HandleEffort)
 	b.teleBot.Handle("/lang", b.handler.HandleLang)
 	b.teleBot.Handle("/thinking", b.handler.HandleThinking)
+	b.teleBot.Handle("/sessions", b.handler.HandleSessions)
+	b.teleBot.Handle("/workspace", b.handler.HandleWorkspace)
 	b.teleBot.Handle("/restart", b.handler.HandleRestart)
 	b.teleBot.Handle("/stop", b.handler.HandleCancel)
 	b.teleBot.Handle("/cancel", b.handler.HandleCancel)
@@ -162,8 +166,17 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle(&tele.Btn{Unique: "cmd_new"}, b.handler.HandleNewCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "cmd_restart"}, b.handler.HandleRestart)
 	b.teleBot.Handle(&tele.Btn{Unique: "cmd_stop"}, b.handler.HandleStopCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "cmd_sessions"}, b.handler.HandleSessionsCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "cmd_workspace"}, b.handler.HandleWorkspace)
+	b.teleBot.Handle(&tele.Btn{Unique: "session_switch"}, b.handler.HandleSessionSwitchCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "ws_set"}, b.handler.HandleWorkspaceCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "file_download"}, b.handler.HandleFileDownloadCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "user_choice"}, b.handler.HandleUserChoiceCallback)
 
 	// Plain text messages routed as agent prompts
 	b.teleBot.Handle(tele.OnText, b.handler.HandlePrompt)
+
+	// Media uploads (multimodal support)
+	b.teleBot.Handle(tele.OnPhoto, b.handler.HandlePhoto)
+	b.teleBot.Handle(tele.OnDocument, b.handler.HandleDocument)
 }

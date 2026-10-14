@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"time"
 )
 
 // PromptOptions holds options for sending a prompt to Antigravity CLI.
@@ -9,6 +10,7 @@ type PromptOptions struct {
 	Prompt          string
 	ContinueSession bool
 	ConversationID  string
+	Workspace       string
 	Mode            string
 	Model           string
 	Effort          string
@@ -16,6 +18,7 @@ type PromptOptions struct {
 	OnCommand       func(cmd string)
 	OnFileEdit      func(toolName, targetFile, diff string)
 	OnThinking      func(thinking string)
+	OnTextDelta     func(delta string)
 	OnConversation  func(conversationID string)
 }
 
@@ -29,6 +32,17 @@ type SystemStatus struct {
 	AgentStatus string
 }
 
+// SessionRecord represents a saved session in history.
+type SessionRecord struct {
+	ConversationID  string
+	Title           string
+	Workspace       string
+	Mode            string
+	Model           string
+	Effort          string
+	UpdatedAt       time.Time
+}
+
 // AgentRunner executes Antigravity CLI commands.
 type AgentRunner interface {
 	Execute(ctx context.Context, opts PromptOptions) (string, error)
@@ -36,12 +50,14 @@ type AgentRunner interface {
 	IsRunning() bool
 }
 
-// SessionManager manages conversation state and active agent configuration.
+// SessionManager manages conversation state, workspaces, and active agent configuration.
 type SessionManager interface {
 	ShouldContinue() bool
 	SetContinue(shouldContinue bool)
 	GetConversationID() string
 	SetConversationID(convID string)
+	GetWorkspace() string
+	SetWorkspace(dir string)
 	GetLastUserID() int64
 	SetLastUserID(userID int64)
 	GetMode() string
@@ -55,6 +71,8 @@ type SessionManager interface {
 	IsThinkingEnabled() bool
 	SetThinkingEnabled(enabled bool)
 	Reset()
+	ListSessions(limit int) ([]SessionRecord, error)
+	SwitchSession(convID string) error
 }
 
 // MetricsCollector collects host system resource metrics.

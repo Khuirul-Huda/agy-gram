@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Khuirul-Huda/agy-gram/internal/agent"
 	"github.com/Khuirul-Huda/agy-gram/internal/config"
 	"github.com/Khuirul-Huda/agy-gram/internal/domain"
 	tele "gopkg.in/telebot.v3"
@@ -146,8 +147,14 @@ func (h *Handler) buildMainMenu() (string, *tele.ReplyMarkup) {
 		}
 	}
 
+	currentWs := h.session.GetWorkspace()
+	if currentWs == "" {
+		currentWs = "/home/huda"
+	}
+
 	text := fmt.Sprintf(`🎮 <b>AGY-Gram Control Panel</b>
 
+• <b>Workspace:</b> <code>%s</code>
 • <b>Model:</b> <code>%s</code>
 • <b>Effort:</b> <code>%s</code>
 • <b>Mode:</b> <code>%s</code>
@@ -155,6 +162,7 @@ func (h *Handler) buildMainMenu() (string, *tele.ReplyMarkup) {
 • <b>Session:</b> %s
 
 <i>Gunakan tombol di bawah untuk mengubah pengaturan secara instan:</i>`,
+		html.EscapeString(currentWs),
 		html.EscapeString(currentModel),
 		html.EscapeString(currentEffort),
 		html.EscapeString(currentMode),
@@ -168,6 +176,8 @@ func (h *Handler) buildMainMenu() (string, *tele.ReplyMarkup) {
 	btnEffort := menu.Data(fmt.Sprintf("🎯 Effort: %s", currentEffort), "effort_menu")
 	btnMode := menu.Data(fmt.Sprintf("🔄 Mode: %s", currentMode), "mode_menu")
 	btnThinking := menu.Data(fmt.Sprintf("🧠 Thinking: %s", thinkingStatus), "thinking_menu")
+	btnSessions := menu.Data("📂 Riwayat Sesi", "cmd_sessions")
+	btnWorkspace := menu.Data("📁 Workspace", "cmd_workspace")
 	btnStatus := menu.Data("📊 Status Server", "cmd_status")
 	btnNewSession := menu.Data("🧹 Reset Sesi", "cmd_new")
 	btnRestart := menu.Data("♻️ Restart Bot", "cmd_restart")
@@ -176,6 +186,7 @@ func (h *Handler) buildMainMenu() (string, *tele.ReplyMarkup) {
 	menu.Inline(
 		menu.Row(btnModel, btnEffort),
 		menu.Row(btnMode, btnThinking),
+		menu.Row(btnSessions, btnWorkspace),
 		menu.Row(btnStatus, btnNewSession),
 		menu.Row(btnRestart, btnStop),
 	)
@@ -837,10 +848,17 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 	go h.startTypingTicker(c, stopTyping)
 	defer close(stopTyping)
 
+	var (
+		streamBuf    strings.Builder
+		streamMu     sync.Mutex
+		lastEditTime time.Time
+	)
+
 	opts := domain.PromptOptions{
 		Prompt:          prompt,
 		ContinueSession: h.session.ShouldContinue(),
 		ConversationID:  h.session.GetConversationID(),
+		Workspace:       h.session.GetWorkspace(),
 		Mode:            h.session.GetMode(),
 		Model:           h.session.GetModel(),
 		Effort:          h.session.GetEffort(),
@@ -849,6 +867,11 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 			h.session.SetConversationID(convID)
 		},
 		OnCommand: func(cmd string) {
+			isRisky, pattern := agent.IsCommandRisky(cmd)
+			if isRisky {
+				warnMsg := fmt.Sprintf("⚠️ <b>PERINGATAN OPERASI BERISIKO TINGGI:</b>\nPerintah terdeteksi berbahaya (pattern: <code>%s</code>):\n<pre><code class=\"language-bash\">%s</code></pre>", html.EscapeString(pattern), html.EscapeString(cmd))
+				_ = c.Send(warnMsg, tele.ModeHTML)
+			}
 			msg := msgCommandHeader(lang, cmd)
 			if err := c.Send(msg, tele.ModeHTML); err != nil {
 				_ = c.Send(fmt.Sprintf("⚙️ Menjalankan Perintah:\n%s", cmd))
@@ -856,8 +879,12 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 		},
 		OnFileEdit: func(toolName, targetFile, diff string) {
 			msg := msgFileEditHeader(lang, toolName, targetFile, diff)
-			if err := c.Send(msg, tele.ModeHTML); err != nil {
-				_ = c.Send(fmt.Sprintf("📝 %s: %s\n%s", toolName, targetFile, diff))
+			menu := &tele.ReplyMarkup{}
+			btnDownload := menu.Data("📥 Unduh File", "file_download", targetFile)
+			menu.Inline(menu.Row(btnDownload))
+
+			if err := c.Send(msg, menu, tele.ModeHTML); err != nil {
+				_ = c.Send(fmt.Sprintf("📝 %s: %s\n%s", toolName, targetFile, diff), menu)
 			}
 		},
 		OnThinking: func(thinking string) {
@@ -868,6 +895,24 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 					_ = c.Send("🧠 Thinking Process:\n" + chunk)
 				}
 			}
+		},
+		OnTextDelta: func(delta string) {
+			// Throttle live message editing to avoid Telegram rate limits
+			streamMu.Lock()
+			streamBuf.WriteString(delta)
+			now := time.Now()
+			if ackMsg != nil && now.Sub(lastEditTime) >= 1500*time.Millisecond && streamBuf.Len() > 0 {
+				lastEditTime = now
+				currentText := streamBuf.String()
+				streamMu.Unlock()
+				if len(currentText) > 3500 {
+					currentText = currentText[:3500] + "\n...(streaming)..."
+				}
+				html := MarkdownToTelegramHTML(currentText)
+				_ = safeEdit(c, html, tele.ModeHTML)
+				return
+			}
+			streamMu.Unlock()
 		},
 	}
 

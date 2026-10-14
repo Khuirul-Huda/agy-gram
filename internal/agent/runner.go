@@ -97,7 +97,11 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 
 	args := r.buildArgs(opts)
 	cmd := exec.CommandContext(execCtx, r.binPath, args...)
-	cmd.Dir = r.workingDir
+	if opts.Workspace != "" {
+		cmd.Dir = opts.Workspace
+	} else {
+		cmd.Dir = r.workingDir
+	}
 
 	// Put process into its own process group to ensure clean termination of children
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -272,6 +276,9 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 			// Accumulate response text deltas if any
 			if step.StepType == "agent_response" && step.TextDelta != "" {
 				textDeltas.WriteString(step.TextDelta)
+				if opts.OnTextDelta != nil {
+					opts.OnTextDelta(step.TextDelta)
+				}
 			}
 		}
 

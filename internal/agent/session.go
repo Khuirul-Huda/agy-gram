@@ -13,6 +13,7 @@ type Session struct {
 	mu              sync.RWMutex
 	store           *storage.BoltStore
 	conversationID  string
+	workspace       string
 	continueSession bool
 	mode            string
 	model           string
@@ -32,6 +33,7 @@ func NewSession(defaultMode, defaultModel string, defaultThinking bool, store ..
 	s := &Session{
 		store:           sStore,
 		conversationID:  "",
+		workspace:       "",
 		continueSession: false,
 		mode:            defaultMode,
 		model:           defaultModel,
@@ -65,6 +67,9 @@ func (s *Session) load() {
 		s.conversationID = state.ConversationID
 		s.continueSession = state.ContinueSession
 	}
+	if state.Workspace != "" {
+		s.workspace = state.Workspace
+	}
 	if state.Mode != "" {
 		s.mode = state.Mode
 	}
@@ -90,6 +95,7 @@ func (s *Session) saveLocked() {
 
 	state := storage.SessionState{
 		ConversationID:  s.conversationID,
+		Workspace:       s.workspace,
 		ContinueSession: s.continueSession,
 		Mode:            s.mode,
 		Model:           s.model,
@@ -116,6 +122,21 @@ func (s *Session) SetConversationID(convID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.conversationID = convID
+	s.saveLocked()
+}
+
+// GetWorkspace returns the active workspace path for AGY CLI.
+func (s *Session) GetWorkspace() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.workspace
+}
+
+// SetWorkspace updates the active working directory for AGY CLI.
+func (s *Session) SetWorkspace(dir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.workspace = dir
 	s.saveLocked()
 }
 
@@ -234,6 +255,71 @@ func (s *Session) Reset() {
 	s.conversationID = ""
 	s.continueSession = false
 	s.saveLocked()
+}
+
+// ListSessions returns recent conversation sessions from history.
+func (s *Session) ListSessions(limit int) ([]domain.SessionRecord, error) {
+	if s.store == nil {
+		return nil, nil
+	}
+
+	sessions, err := s.store.ListSessions(limit)
+	if err != nil {
+		return nil, err
+	}
+
+	var records []domain.SessionRecord
+	for _, st := range sessions {
+		records = append(records, domain.SessionRecord{
+			ConversationID: st.ConversationID,
+			Title:          st.Title,
+			Workspace:      st.Workspace,
+			Mode:           st.Mode,
+			Model:          st.Model,
+			Effort:         st.Effort,
+			UpdatedAt:      st.UpdatedAt,
+		})
+	}
+
+	return records, nil
+}
+
+// SwitchSession activates a historical session.
+func (s *Session) SwitchSession(convID string) error {
+	if s.store == nil {
+		return nil
+	}
+
+	st, err := s.store.GetSession(convID)
+	if err != nil || st == nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.conversationID = st.ConversationID
+	s.continueSession = true
+	if st.Workspace != "" {
+		s.workspace = st.Workspace
+	}
+	if st.Mode != "" {
+		s.mode = st.Mode
+	}
+	if st.Model != "" {
+		s.model = st.Model
+	}
+	if st.Effort != "" {
+		s.effort = st.Effort
+	}
+	s.saveLocked()
+
+	return nil
+}
+
+// GetStore returns the underlying BoltStore instance.
+func (s *Session) GetStore() *storage.BoltStore {
+	return s.store
 }
 
 var _ domain.SessionManager = (*Session)(nil)
