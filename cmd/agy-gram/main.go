@@ -10,6 +10,7 @@ import (
 	"github.com/Khuirul-Huda/agy-gram/internal/agent"
 	"github.com/Khuirul-Huda/agy-gram/internal/bot"
 	"github.com/Khuirul-Huda/agy-gram/internal/config"
+	"github.com/Khuirul-Huda/agy-gram/internal/storage"
 	"github.com/Khuirul-Huda/agy-gram/internal/system"
 )
 
@@ -24,10 +25,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Open lightning-fast embedded bbolt DB for persistent sessions and configs
+	dbPath := filepath.Join("data", "agy_gram.db")
+	store, err := storage.Open(dbPath)
+	if err != nil {
+		slog.Error("Failed to open bbolt database", "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+
 	// Initialize core components following Clean Architecture
 	runner := agent.NewRunner(cfg.AgyBinPath, cfg.AgyWorkingDir, cfg.AgyTimeout)
-	sessionFile := filepath.Join("data", "session.json")
-	session := agent.NewSession(cfg.AgyDefaultMode, cfg.AgyDefaultModel, cfg.VerboseThinking, sessionFile)
+	session := agent.NewSession(cfg.AgyDefaultMode, cfg.AgyDefaultModel, cfg.VerboseThinking, store)
 	monitor := system.NewMonitor(runner)
 	handler := bot.NewHandler(runner, session, monitor)
 

@@ -228,7 +228,7 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 								if instruction != "" {
 									diffBuilder.WriteString(fmt.Sprintf("Instruction: %s\n\n", instruction))
 								}
-								diffStr := formatDiff(targetContent, replacementContent)
+								diffStr := generateGitDiff(targetFile, targetContent, replacementContent)
 								if diffStr != "" {
 									diffBuilder.WriteString(diffStr)
 								}

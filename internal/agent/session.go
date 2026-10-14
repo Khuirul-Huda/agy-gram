@@ -1,29 +1,17 @@
 package agent
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
+	"log/slog"
 	"sync"
 
 	"github.com/Khuirul-Huda/agy-gram/internal/domain"
+	"github.com/Khuirul-Huda/agy-gram/internal/storage"
 )
 
-type sessionData struct {
-	ConversationID  string `json:"conversation_id"`
-	ContinueSession bool   `json:"continue_session"`
-	Mode            string `json:"mode"`
-	Model           string `json:"model"`
-	Effort          string `json:"effort"`
-	Language        string `json:"language"`
-	ThinkingEnabled bool   `json:"thinking_enabled"`
-	LastUserID      int64  `json:"last_user_id"`
-}
-
-// Session manages conversation state and active agent settings.
+// Session manages conversation state and active agent settings with bbolt persistence.
 type Session struct {
 	mu              sync.RWMutex
-	persistPath     string
+	store           *storage.BoltStore
 	conversationID  string
 	continueSession bool
 	mode            string
@@ -34,15 +22,15 @@ type Session struct {
 	lastUserID      int64
 }
 
-// NewSession creates a new Session instance with default mode, model, thinking preference, and optional persistence file.
-func NewSession(defaultMode, defaultModel string, defaultThinking bool, persistPath ...string) *Session {
-	path := ""
-	if len(persistPath) > 0 {
-		path = persistPath[0]
+// NewSession creates a new Session instance with default mode, model, thinking preference, and optional bbolt store.
+func NewSession(defaultMode, defaultModel string, defaultThinking bool, store ...*storage.BoltStore) *Session {
+	var sStore *storage.BoltStore
+	if len(store) > 0 {
+		sStore = store[0]
 	}
 
 	s := &Session{
-		persistPath:     path,
+		store:           sStore,
 		conversationID:  "",
 		continueSession: false,
 		mode:            defaultMode,
@@ -53,7 +41,7 @@ func NewSession(defaultMode, defaultModel string, defaultThinking bool, persistP
 		lastUserID:      0,
 	}
 
-	if path != "" {
+	if s.store != nil {
 		s.load()
 	}
 
@@ -64,13 +52,12 @@ func (s *Session) load() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data, err := os.ReadFile(s.persistPath)
+	state, err := s.store.LoadSession()
 	if err != nil {
+		slog.Warn("Failed to load session from bbolt store", "error", err)
 		return
 	}
-
-	var state sessionData
-	if err := json.Unmarshal(data, &state); err != nil {
+	if state == nil {
 		return
 	}
 
@@ -97,11 +84,11 @@ func (s *Session) load() {
 }
 
 func (s *Session) saveLocked() {
-	if s.persistPath == "" {
+	if s.store == nil {
 		return
 	}
 
-	state := sessionData{
+	state := storage.SessionState{
 		ConversationID:  s.conversationID,
 		ContinueSession: s.continueSession,
 		Mode:            s.mode,
@@ -112,17 +99,9 @@ func (s *Session) saveLocked() {
 		LastUserID:      s.lastUserID,
 	}
 
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return
+	if err := s.store.SaveSession(state); err != nil {
+		slog.Warn("Failed to save session state to bbolt store", "error", err)
 	}
-
-	dir := filepath.Dir(s.persistPath)
-	if dir != "" && dir != "." {
-		_ = os.MkdirAll(dir, 0755)
-	}
-
-	_ = os.WriteFile(s.persistPath, data, 0644)
 }
 
 // GetConversationID returns the active Antigravity CLI conversation ID.

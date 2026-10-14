@@ -3,6 +3,8 @@ package agent
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/Khuirul-Huda/agy-gram/internal/storage"
 )
 
 func TestSessionLifecycle(t *testing.T) {
@@ -72,10 +74,15 @@ func TestSessionLifecycle(t *testing.T) {
 
 func TestSessionPersistence(t *testing.T) {
 	tempDir := t.TempDir()
-	persistPath := filepath.Join(tempDir, "session.json")
+	dbPath := filepath.Join(tempDir, "test_session.db")
+
+	store1, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
 
 	// Session 1 writes state
-	s1 := NewSession("auto", "default-model", false, persistPath)
+	s1 := NewSession("auto", "default-model", false, store1)
 	s1.SetConversationID("session-uuid-456")
 	s1.SetContinue(true)
 	s1.SetMode("accept-edits")
@@ -85,8 +92,17 @@ func TestSessionPersistence(t *testing.T) {
 	s1.SetThinkingEnabled(true)
 	s1.SetLastUserID(999888)
 
-	// Session 2 restores state from same file
-	s2 := NewSession("auto", "", false, persistPath)
+	_ = store1.Close()
+
+	// Reopen store from same DB file
+	store2, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Reopen failed: %v", err)
+	}
+	defer store2.Close()
+
+	// Session 2 restores state from bbolt store
+	s2 := NewSession("auto", "", false, store2)
 	if s2.GetConversationID() != "session-uuid-456" {
 		t.Errorf("expected restored convID 'session-uuid-456', got '%s'", s2.GetConversationID())
 	}
