@@ -1,0 +1,22 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Environment variables & secrets
+.env
+*.local
+
+# Logs
+logs/
+*.log
+
+# PM2
+.pm2/
+
+# OS metadata
+.DS_Store
+Thumbs.db
