@@ -20,6 +20,7 @@ type Config struct {
 	AgyTimeout       time.Duration
 	AgyDefaultMode   string
 	AgyDefaultModel  string
+	VerboseThinking  bool
 }
 
 // Load loads configuration from environment variables and optional .env file.
@@ -52,6 +53,9 @@ func Load() (*Config, error) {
 	defaultMode := getEnvOrDefault("AGY_DEFAULT_MODE", "auto")
 	defaultModel := strings.TrimSpace(os.Getenv("AGY_DEFAULT_MODEL"))
 
+	verboseThinkingStr := strings.ToLower(strings.TrimSpace(os.Getenv("AGY_VERBOSE_THINKING")))
+	verboseThinking := verboseThinkingStr == "true" || verboseThinkingStr == "1" || verboseThinkingStr == "yes"
+
 	return &Config{
 		TelegramBotToken: token,
 		AllowedUserIDs:   allowedUserIDs,
@@ -60,6 +64,7 @@ func Load() (*Config, error) {
 		AgyTimeout:       time.Duration(timeoutMinutes) * time.Minute,
 		AgyDefaultMode:   defaultMode,
 		AgyDefaultModel:  defaultModel,
+		VerboseThinking:  verboseThinking,
 	}, nil
 }
 

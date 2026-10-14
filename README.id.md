@@ -53,6 +53,7 @@ Antigravity CLI
 | **`/status`** | Cek metrik hardware server (CPU, RAM, ZRAM, SSD) dan status agent. |
 | **`/mode [auto\|plan\|accept-edits]`** | Cek atau ubah mode eksekusi Antigravity CLI. |
 | **`/model [nama_model]`** | Cek atau atur model AI override (gunakan `/model reset` untuk kembali ke default). |
+| **`/thinking [on\|off]`** | Cek atau ubah pengaturan streaming proses berpikir AI ke Telegram. |
 | **`/stop`** atau **`/cancel`** | Hentikan paksa tugas agent yang sedang berpikir atau berjalan. |
 | *Pesan Teks Biasa* | Setiap pesan non-perintah otomatis dieksekusi sebagai prompt interaktif ke `agy`. |
 
@@ -91,6 +92,9 @@ AGY_DEFAULT_MODE=auto
 
 # Model default (opsional, kosongkan untuk menggunakan default CLI)
 AGY_DEFAULT_MODEL=
+
+# Aktifkan streaming log berpikir AI secara default (true/false, default: false)
+AGY_VERBOSE_THINKING=false
 ```
 
 > [!IMPORTANT]

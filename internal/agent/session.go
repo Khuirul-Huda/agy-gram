@@ -12,14 +12,16 @@ type Session struct {
 	continueSession bool
 	mode            string
 	model           string
+	thinkingEnabled bool
 }
 
-// NewSession creates a new Session instance with default mode and model.
-func NewSession(defaultMode, defaultModel string) *Session {
+// NewSession creates a new Session instance with default mode, model, and thinking preference.
+func NewSession(defaultMode, defaultModel string, defaultThinking bool) *Session {
 	return &Session{
 		continueSession: false,
 		mode:            defaultMode,
 		model:           defaultModel,
+		thinkingEnabled: defaultThinking,
 	}
 }
 
@@ -63,6 +65,20 @@ func (s *Session) SetModel(model string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.model = model
+}
+
+// IsThinkingEnabled returns whether verbose thinking is enabled.
+func (s *Session) IsThinkingEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.thinkingEnabled
+}
+
+// SetThinkingEnabled sets the verbose thinking preference.
+func (s *Session) SetThinkingEnabled(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.thinkingEnabled = enabled
 }
 
 // Reset resets the session state to start a fresh conversation.

@@ -25,7 +25,7 @@ func main() {
 
 	// Initialize core components following Clean Architecture
 	runner := agent.NewRunner(cfg.AgyBinPath, cfg.AgyWorkingDir, cfg.AgyTimeout)
-	session := agent.NewSession(cfg.AgyDefaultMode, cfg.AgyDefaultModel)
+	session := agent.NewSession(cfg.AgyDefaultMode, cfg.AgyDefaultModel, cfg.VerboseThinking)
 	monitor := system.NewMonitor(runner)
 	handler := bot.NewHandler(runner, session, monitor)
 

@@ -53,6 +53,7 @@ Antigravity CLI
 | **`/status`** | Real-time host hardware metrics (CPU, RAM, ZRAM Swap, SSD) and agent state. |
 | **`/mode [auto\|plan\|accept-edits]`** | Inspect or switch Antigravity execution mode. |
 | **`/model [model_name]`** | Inspect or set model override (use `/model reset` to restore default). |
+| **`/thinking [on\|off]`** | Inspect or toggle verbose AI reasoning stream to Telegram. |
 | **`/stop`** or **`/cancel`** | Terminate any active agent process group immediately. |
 | *Plain Text Message* | Any text message is forwarded as an interactive prompt to `agy`. |
 
@@ -91,6 +92,9 @@ AGY_DEFAULT_MODE=auto
 
 # Default AI model override (optional, leave empty for CLI default)
 AGY_DEFAULT_MODEL=
+
+# Enable verbose thinking stream by default (true/false, default: false)
+AGY_VERBOSE_THINKING=false
 ```
 
 > [!IMPORTANT]

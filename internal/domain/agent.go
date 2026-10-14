@@ -10,6 +10,9 @@ type PromptOptions struct {
 	ContinueSession bool
 	Mode            string
 	Model           string
+	VerboseThinking bool
+	OnCommand       func(cmd string)
+	OnThinking      func(thinking string)
 }
 
 // SystemStatus represents host hardware and resource utilization metrics.
@@ -37,6 +40,8 @@ type SessionManager interface {
 	SetMode(mode string)
 	GetModel() string
 	SetModel(model string)
+	IsThinkingEnabled() bool
+	SetThinkingEnabled(enabled bool)
 	Reset()
 }
 

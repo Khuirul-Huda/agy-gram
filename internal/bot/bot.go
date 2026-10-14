@@ -86,6 +86,7 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle("/status", b.handler.HandleStatus)
 	b.teleBot.Handle("/mode", b.handler.HandleMode)
 	b.teleBot.Handle("/model", b.handler.HandleModel)
+	b.teleBot.Handle("/thinking", b.handler.HandleThinking)
 	b.teleBot.Handle("/stop", b.handler.HandleCancel)
 	b.teleBot.Handle("/cancel", b.handler.HandleCancel)
 

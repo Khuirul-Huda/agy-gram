@@ -5,13 +5,16 @@ import (
 )
 
 func TestSessionLifecycle(t *testing.T) {
-	s := NewSession("auto", "")
+	s := NewSession("auto", "", false)
 
 	if s.ShouldContinue() {
 		t.Errorf("expected initial continueSession to be false")
 	}
 	if s.GetMode() != "auto" {
 		t.Errorf("expected default mode 'auto', got '%s'", s.GetMode())
+	}
+	if s.IsThinkingEnabled() {
+		t.Errorf("expected default thinkingEnabled to be false")
 	}
 
 	s.SetContinue(true)
@@ -27,6 +30,11 @@ func TestSessionLifecycle(t *testing.T) {
 	s.SetModel("gemini-2.5-pro")
 	if s.GetModel() != "gemini-2.5-pro" {
 		t.Errorf("expected model 'gemini-2.5-pro', got '%s'", s.GetModel())
+	}
+
+	s.SetThinkingEnabled(true)
+	if !s.IsThinkingEnabled() {
+		t.Errorf("expected thinkingEnabled to be true")
 	}
 
 	s.Reset()
