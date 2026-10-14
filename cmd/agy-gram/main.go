@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/Khuirul-Huda/agy-gram/internal/agent"
@@ -25,11 +26,12 @@ func main() {
 
 	// Initialize core components following Clean Architecture
 	runner := agent.NewRunner(cfg.AgyBinPath, cfg.AgyWorkingDir, cfg.AgyTimeout)
-	session := agent.NewSession(cfg.AgyDefaultMode, cfg.AgyDefaultModel, cfg.VerboseThinking)
+	sessionFile := filepath.Join("data", "session.json")
+	session := agent.NewSession(cfg.AgyDefaultMode, cfg.AgyDefaultModel, cfg.VerboseThinking, sessionFile)
 	monitor := system.NewMonitor(runner)
 	handler := bot.NewHandler(runner, session, monitor)
 
-	telegramBot, err := bot.NewBot(cfg, handler)
+	telegramBot, err := bot.NewBot(cfg, handler, session)
 	if err != nil {
 		slog.Error("Failed to initialize Telegram bot", "error", err)
 		os.Exit(1)

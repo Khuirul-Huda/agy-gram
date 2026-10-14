@@ -8,6 +8,7 @@ import (
 type PromptOptions struct {
 	Prompt          string
 	ContinueSession bool
+	ConversationID  string
 	Mode            string
 	Model           string
 	Effort          string
@@ -15,6 +16,7 @@ type PromptOptions struct {
 	OnCommand       func(cmd string)
 	OnFileEdit      func(toolName, targetFile, diff string)
 	OnThinking      func(thinking string)
+	OnConversation  func(conversationID string)
 }
 
 // SystemStatus represents host hardware and resource utilization metrics.
@@ -38,6 +40,10 @@ type AgentRunner interface {
 type SessionManager interface {
 	ShouldContinue() bool
 	SetContinue(shouldContinue bool)
+	GetConversationID() string
+	SetConversationID(convID string)
+	GetLastUserID() int64
+	SetLastUserID(userID int64)
 	GetMode() string
 	SetMode(mode string)
 	GetModel() string

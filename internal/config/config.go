@@ -25,8 +25,8 @@ type Config struct {
 
 // Load loads configuration from environment variables and optional .env file.
 func Load() (*Config, error) {
-	// Load .env if present; ignore error if file does not exist
-	_ = godotenv.Load()
+	// Load .env if present, overwriting cached process env variables
+	_ = godotenv.Overload()
 
 	token := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
 	if token == "" {
@@ -45,9 +45,12 @@ func Load() (*Config, error) {
 		agyWorkingDir = "."
 	}
 
-	timeoutMinutes, err := strconv.Atoi(getEnvOrDefault("AGY_TIMEOUT_MINUTES", "5"))
-	if err != nil || timeoutMinutes <= 0 {
-		timeoutMinutes = 5
+	timeoutMinutes, err := strconv.Atoi(getEnvOrDefault("AGY_TIMEOUT_MINUTES", "0"))
+	var agyTimeout time.Duration
+	if err == nil && timeoutMinutes > 0 {
+		agyTimeout = time.Duration(timeoutMinutes) * time.Minute
+	} else {
+		agyTimeout = 0 // 0 means no timeout (disabled)
 	}
 
 	defaultMode := getEnvOrDefault("AGY_DEFAULT_MODE", "auto")
@@ -61,7 +64,7 @@ func Load() (*Config, error) {
 		AllowedUserIDs:   allowedUserIDs,
 		AgyBinPath:       agyBinPath,
 		AgyWorkingDir:    agyWorkingDir,
-		AgyTimeout:       time.Duration(timeoutMinutes) * time.Minute,
+		AgyTimeout:       agyTimeout,
 		AgyDefaultMode:   defaultMode,
 		AgyDefaultModel:  defaultModel,
 		VerboseThinking:  verboseThinking,

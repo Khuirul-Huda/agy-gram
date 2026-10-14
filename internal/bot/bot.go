@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Khuirul-Huda/agy-gram/internal/config"
+	"github.com/Khuirul-Huda/agy-gram/internal/domain"
 	tele "gopkg.in/telebot.v3"
 	"gopkg.in/telebot.v3/middleware"
 )
@@ -15,10 +16,11 @@ type Bot struct {
 	teleBot *tele.Bot
 	cfg     *config.Config
 	handler *Handler
+	session domain.SessionManager
 }
 
 // NewBot initializes a new Telegram bot instance.
-func NewBot(cfg *config.Config, handler *Handler) (*Bot, error) {
+func NewBot(cfg *config.Config, handler *Handler, session domain.SessionManager) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  cfg.TelegramBotToken,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
@@ -33,6 +35,7 @@ func NewBot(cfg *config.Config, handler *Handler) (*Bot, error) {
 		teleBot: b,
 		cfg:     cfg,
 		handler: handler,
+		session: session,
 	}
 
 	bot.registerMiddlewares()
@@ -44,27 +47,46 @@ func NewBot(cfg *config.Config, handler *Handler) (*Bot, error) {
 
 func (b *Bot) registerBotCommands() {
 	cmds := []tele.Command{
+		{Text: "menu", Description: "Buka panel kontrol utama interaktif"},
 		{Text: "start", Description: "Mulai dan info bot"},
 		{Text: "help", Description: "Panduan lengkap penggunaan"},
 		{Text: "new", Description: "Mulai sesi percakapan baru"},
 		{Text: "model", Description: "Pilih model AI (Gemini, Claude, GPT)"},
 		{Text: "effort", Description: "Atur tingkat reasoning effort"},
-		{Text: "lang", Description: "Pilih bahasa / Switch language"},
 		{Text: "mode", Description: "Atur mode (auto, plan, accept-edits)"},
 		{Text: "thinking", Description: "Toggle verbose thinking stream"},
 		{Text: "status", Description: "Cek hardware & status server"},
+		{Text: "restart", Description: "Restart aman service AGY-Gram"},
 		{Text: "stop", Description: "Hentikan proses yang sedang berjalan"},
 	}
+
+	// 1. Register default scope
 	if err := b.teleBot.SetCommands(cmds); err != nil {
-		slog.Warn("Gagal mendaftarkan menu perintah bot ke Telegram", "err", err)
+		slog.Warn("Gagal mendaftarkan menu perintah default ke Telegram", "err", err)
+	}
+
+	// 2. Register for private chats explicitly
+	if err := b.teleBot.SetCommands(cmds, tele.CommandScope{Type: tele.CommandScopeAllPrivateChats}); err != nil {
+		slog.Warn("Gagal mendaftarkan menu perintah all_private_chats ke Telegram", "err", err)
 	} else {
-		slog.Info("Menu perintah bot berhasil didaftarkan ke Telegram")
+		slog.Info("Menu perintah bot (all_private_chats) berhasil didaftarkan ke Telegram")
+	}
+
+	// 3. Set chat menu button to show commands menu
+	if _, err := b.teleBot.Raw("setChatMenuButton", map[string]interface{}{
+		"menu_button": map[string]string{"type": "commands"},
+	}); err != nil {
+		slog.Warn("Gagal mengatur menu button ke commands", "err", err)
 	}
 }
 
 // Start begins listening for updates (blocking).
 func (b *Bot) Start() {
 	slog.Info("Starting Telegram bot polling", "bot_user", b.teleBot.Me.Username)
+
+	// Check if this startup was triggered by a restart request and notify user
+	CheckAndNotifyRestart(b.teleBot, b.session, b.cfg)
+
 	b.teleBot.Start()
 }
 
@@ -102,6 +124,7 @@ func (b *Bot) registerMiddlewares() {
 
 func (b *Bot) registerRoutes() {
 	b.teleBot.Handle("/start", b.handler.HandleStart)
+	b.teleBot.Handle("/menu", b.handler.HandleMenu)
 	b.teleBot.Handle("/help", b.handler.HandleHelp)
 	b.teleBot.Handle("/new", b.handler.HandleNew)
 	b.teleBot.Handle("/status", b.handler.HandleStatus)
@@ -110,16 +133,35 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle("/effort", b.handler.HandleEffort)
 	b.teleBot.Handle("/lang", b.handler.HandleLang)
 	b.teleBot.Handle("/thinking", b.handler.HandleThinking)
+	b.teleBot.Handle("/restart", b.handler.HandleRestart)
 	b.teleBot.Handle("/stop", b.handler.HandleCancel)
 	b.teleBot.Handle("/cancel", b.handler.HandleCancel)
 
 	// Inline keyboard callback handlers
+	b.teleBot.Handle(&tele.Btn{Unique: "main_menu"}, b.handler.HandleMenuCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "model_menu"}, b.handler.HandleModelMenuCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "model_set"}, b.handler.HandleSetModelCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "model_reset"}, b.handler.HandleResetModelCallback)
-	b.teleBot.Handle(&tele.Btn{Unique: "model_menu"}, b.handler.HandleModelMenuCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "effort_menu"}, b.handler.HandleEffortMenuCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "effort_set"}, b.handler.HandleSetEffortCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "mode_menu"}, func(c tele.Context) error {
+		_ = c.Respond()
+		text, menu := b.handler.buildModeMenu()
+		return safeEdit(c, text, menu, tele.ModeHTML)
+	})
+	b.teleBot.Handle(&tele.Btn{Unique: "mode_set"}, b.handler.HandleSetModeCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "thinking_menu"}, func(c tele.Context) error {
+		_ = c.Respond()
+		text, menu := b.handler.buildThinkingMenu()
+		return safeEdit(c, text, menu, tele.ModeHTML)
+	})
+	b.teleBot.Handle(&tele.Btn{Unique: "thinking_set"}, b.handler.HandleSetThinkingCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "lang_menu"}, b.handler.HandleLang)
 	b.teleBot.Handle(&tele.Btn{Unique: "lang_set"}, b.handler.HandleSetLangCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "cmd_status"}, b.handler.HandleStatusCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "cmd_new"}, b.handler.HandleNewCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "cmd_restart"}, b.handler.HandleRestart)
+	b.teleBot.Handle(&tele.Btn{Unique: "cmd_stop"}, b.handler.HandleStopCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "user_choice"}, b.handler.HandleUserChoiceCallback)
 
 	// Plain text messages routed as agent prompts

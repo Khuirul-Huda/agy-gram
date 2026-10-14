@@ -17,6 +17,9 @@ logs/
 # PM2
 .pm2/
 
+# Data
+data/
+
 # OS metadata
 .DS_Store
 Thumbs.db

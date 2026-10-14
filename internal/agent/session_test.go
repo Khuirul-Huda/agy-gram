@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -20,6 +21,16 @@ func TestSessionLifecycle(t *testing.T) {
 	s.SetContinue(true)
 	if !s.ShouldContinue() {
 		t.Errorf("expected continueSession to be true")
+	}
+
+	s.SetConversationID("test-conv-123")
+	if s.GetConversationID() != "test-conv-123" {
+		t.Errorf("expected conversationID 'test-conv-123', got '%s'", s.GetConversationID())
+	}
+
+	s.SetLastUserID(123456)
+	if s.GetLastUserID() != 123456 {
+		t.Errorf("expected lastUserID 123456, got %d", s.GetLastUserID())
 	}
 
 	s.SetMode("plan")
@@ -53,5 +64,51 @@ func TestSessionLifecycle(t *testing.T) {
 	s.Reset()
 	if s.ShouldContinue() {
 		t.Errorf("expected continueSession to be reset to false")
+	}
+	if s.GetConversationID() != "" {
+		t.Errorf("expected conversationID to be empty after reset")
+	}
+}
+
+func TestSessionPersistence(t *testing.T) {
+	tempDir := t.TempDir()
+	persistPath := filepath.Join(tempDir, "session.json")
+
+	// Session 1 writes state
+	s1 := NewSession("auto", "default-model", false, persistPath)
+	s1.SetConversationID("session-uuid-456")
+	s1.SetContinue(true)
+	s1.SetMode("accept-edits")
+	s1.SetModel("claude-3-7-sonnet")
+	s1.SetEffort("medium")
+	s1.SetLanguage("en")
+	s1.SetThinkingEnabled(true)
+	s1.SetLastUserID(999888)
+
+	// Session 2 restores state from same file
+	s2 := NewSession("auto", "", false, persistPath)
+	if s2.GetConversationID() != "session-uuid-456" {
+		t.Errorf("expected restored convID 'session-uuid-456', got '%s'", s2.GetConversationID())
+	}
+	if !s2.ShouldContinue() {
+		t.Errorf("expected restored continue to be true")
+	}
+	if s2.GetMode() != "accept-edits" {
+		t.Errorf("expected restored mode 'accept-edits', got '%s'", s2.GetMode())
+	}
+	if s2.GetModel() != "claude-3-7-sonnet" {
+		t.Errorf("expected restored model 'claude-3-7-sonnet', got '%s'", s2.GetModel())
+	}
+	if s2.GetEffort() != "medium" {
+		t.Errorf("expected restored effort 'medium', got '%s'", s2.GetEffort())
+	}
+	if s2.GetLanguage() != "en" {
+		t.Errorf("expected restored language 'en', got '%s'", s2.GetLanguage())
+	}
+	if !s2.IsThinkingEnabled() {
+		t.Errorf("expected restored thinkingEnabled to be true")
+	}
+	if s2.GetLastUserID() != 999888 {
+		t.Errorf("expected restored lastUserID 999888, got %d", s2.GetLastUserID())
 	}
 }

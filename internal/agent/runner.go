@@ -86,7 +86,13 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 		return "", domain.ErrAgentBusy
 	}
 
-	execCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	var execCtx context.Context
+	var cancel context.CancelFunc
+	if r.timeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, r.timeout)
+	} else {
+		execCtx, cancel = context.WithCancel(ctx)
+	}
 	r.cancelFn = cancel
 
 	args := r.buildArgs(opts)
@@ -146,12 +152,18 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 
 		if ev.ConversationID != "" && conversationID == "" {
 			conversationID = ev.ConversationID
+			if opts.OnConversation != nil {
+				opts.OnConversation(conversationID)
+			}
 		}
 
 		if ev.StepUpdate != nil {
 			step := ev.StepUpdate
 			if step.ConversationID != "" && conversationID == "" {
 				conversationID = step.ConversationID
+				if opts.OnConversation != nil {
+					opts.OnConversation(conversationID)
+				}
 			}
 
 			// 1. Real-time thinking polling: stream thinking as soon as it appears in transcript
@@ -165,46 +177,90 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 			if step.StepType == "tool" && step.State == "ACTIVE" {
 				if !seenToolSteps[step.StepIndex] {
 					seenToolSteps[step.StepIndex] = true
-					if step.ToolInfo != nil && step.ToolInfo.Parameters != nil {
+					if step.ToolInfo != nil {
 						params := step.ToolInfo.Parameters
+						if params == nil {
+							params = make(map[string]interface{})
+						}
+
 						switch step.ToolName {
 						case "run_command":
 							if opts.OnCommand != nil {
+								cmdStr := ""
 								if cmdVal, ok := params["CommandLine"]; ok {
-									if cmdStr, okStr := cmdVal.(string); okStr && strings.TrimSpace(cmdStr) != "" {
-										opts.OnCommand(strings.TrimSpace(cmdStr))
+									if s, okStr := cmdVal.(string); okStr {
+										cmdStr = s
 									}
+								}
+								if cmdStr == "" && conversationID != "" {
+									toolArgs := fetchToolCallDetails(conversationID, step.StepIndex, "run_command")
+									cmdStr = getToolArgString(toolArgs, "CommandLine")
+								}
+								if strings.TrimSpace(cmdStr) != "" {
+									opts.OnCommand(strings.TrimSpace(cmdStr))
 								}
 							}
 						case "replace_file_content":
 							if opts.OnFileEdit != nil {
+								var toolArgs map[string]interface{}
+								if conversationID != "" {
+									toolArgs = fetchToolCallDetails(conversationID, step.StepIndex, "replace_file_content")
+								}
+
 								targetFile, _ := params["TargetFile"].(string)
+								if targetFile == "" {
+									targetFile = getToolArgString(toolArgs, "TargetFile")
+								}
 								instruction, _ := params["Instruction"].(string)
+								if instruction == "" {
+									instruction = getToolArgString(toolArgs, "Instruction")
+								}
 								targetContent, _ := params["TargetContent"].(string)
+								if targetContent == "" {
+									targetContent = getToolArgString(toolArgs, "TargetContent")
+								}
 								replacementContent, _ := params["ReplacementContent"].(string)
+								if replacementContent == "" {
+									replacementContent = getToolArgString(toolArgs, "ReplacementContent")
+								}
 
 								var diffBuilder strings.Builder
 								if instruction != "" {
 									diffBuilder.WriteString(fmt.Sprintf("Instruction: %s\n\n", instruction))
 								}
-								if targetContent != "" || replacementContent != "" {
-									diffBuilder.WriteString("--- Target:\n" + truncateSnippet(targetContent, 400) + "\n\n")
-									diffBuilder.WriteString("+++ Replacement:\n" + truncateSnippet(replacementContent, 400))
+								diffStr := formatDiff(targetContent, replacementContent)
+								if diffStr != "" {
+									diffBuilder.WriteString(diffStr)
 								}
 								opts.OnFileEdit("replace_file_content", targetFile, diffBuilder.String())
 							}
 						case "write_to_file":
 							if opts.OnFileEdit != nil {
+								var toolArgs map[string]interface{}
+								if conversationID != "" {
+									toolArgs = fetchToolCallDetails(conversationID, step.StepIndex, "write_to_file")
+								}
+
 								targetFile, _ := params["TargetFile"].(string)
+								if targetFile == "" {
+									targetFile = getToolArgString(toolArgs, "TargetFile")
+								}
 								desc, _ := params["Description"].(string)
+								if desc == "" {
+									desc = getToolArgString(toolArgs, "Description")
+								}
 								codeContent, _ := params["CodeContent"].(string)
+								if codeContent == "" {
+									codeContent = getToolArgString(toolArgs, "CodeContent")
+								}
 
 								var diffBuilder strings.Builder
 								if desc != "" {
 									diffBuilder.WriteString(fmt.Sprintf("Description: %s\n\n", desc))
 								}
-								if codeContent != "" {
-									diffBuilder.WriteString("Content:\n" + truncateSnippet(codeContent, 500))
+								diffStr := formatWriteContent(codeContent)
+								if diffStr != "" {
+									diffBuilder.WriteString(diffStr)
 								}
 								opts.OnFileEdit("write_to_file", targetFile, diffBuilder.String())
 							}
@@ -222,6 +278,9 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 		if ev.Result != nil {
 			if ev.Result.ConversationID != "" {
 				conversationID = ev.Result.ConversationID
+				if opts.OnConversation != nil {
+					opts.OnConversation(conversationID)
+				}
 			}
 			if ev.Result.Response != "" {
 				finalResponse = ev.Result.Response
@@ -299,7 +358,9 @@ func (r *Runner) IsRunning() bool {
 func (r *Runner) buildArgs(opts domain.PromptOptions) []string {
 	args := []string{"-p", opts.Prompt, "--dangerously-skip-permissions", "--output-format", "stream-json"}
 
-	if opts.ContinueSession {
+	if opts.ConversationID != "" {
+		args = append(args, "--conversation", opts.ConversationID)
+	} else if opts.ContinueSession {
 		args = append(args, "-c")
 	}
 	if opts.Mode != "" {
@@ -373,3 +434,167 @@ func truncateSnippet(s string, maxLen int) string {
 	}
 	return s[:maxLen] + "\n...(dipotong karena panjang)"
 }
+
+// fetchToolCallDetails retrieves tool parameters from the conversation logs.
+// It prioritizes transcript_full.jsonl which contains untruncated content, with fallback to transcript.jsonl.
+func fetchToolCallDetails(convID string, stepIndex int, toolName string) map[string]interface{} {
+	if convID == "" {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+
+	baseDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", convID, ".system_generated", "logs")
+	logPaths := []string{
+		filepath.Join(baseDir, "transcript_full.jsonl"),
+		filepath.Join(baseDir, "transcript.jsonl"),
+	}
+
+	for _, p := range logPaths {
+		if args := readToolCallFromLog(p, stepIndex, toolName); len(args) > 0 {
+			return args
+		}
+	}
+
+	// Brief pause if log write is still buffering
+	time.Sleep(60 * time.Millisecond)
+	for _, p := range logPaths {
+		if args := readToolCallFromLog(p, stepIndex, toolName); len(args) > 0 {
+			return args
+		}
+	}
+
+	return nil
+}
+
+func readToolCallFromLog(filePath string, targetStep int, toolName string) map[string]interface{} {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 4*1024*1024)
+
+	var latestMatch map[string]interface{}
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		var entry struct {
+			StepIndex int `json:"step_index"`
+			Type      string `json:"type"`
+			ToolCalls []struct {
+				Name string                 `json:"name"`
+				Args map[string]interface{} `json:"args"`
+			} `json:"tool_calls"`
+		}
+		if err := json.Unmarshal(line, &entry); err != nil {
+			continue
+		}
+
+		isNearStep := entry.StepIndex == targetStep || entry.StepIndex == targetStep-1 || entry.StepIndex == targetStep+1
+		for _, tc := range entry.ToolCalls {
+			if tc.Name == toolName {
+				if isNearStep {
+					return tc.Args
+				}
+				latestMatch = tc.Args
+			}
+		}
+	}
+
+	return latestMatch
+}
+
+func getToolArgString(args map[string]interface{}, key string) string {
+	if args == nil {
+		return ""
+	}
+	val, ok := args[key]
+	if !ok || val == nil {
+		return ""
+	}
+	if s, ok := val.(string); ok {
+		return unescapeTranscriptArg(s)
+	}
+	return fmt.Sprintf("%v", val)
+}
+
+func formatDiff(targetContent, replacementContent string) string {
+	var sb strings.Builder
+	if targetContent != "" {
+		sb.WriteString("--- Sebelum\n")
+		lines := strings.Split(targetContent, "\n")
+		if len(lines) > 20 {
+			for _, l := range lines[:10] {
+				sb.WriteString("- " + l + "\n")
+			}
+			sb.WriteString("- ... (dipotong)\n")
+			for _, l := range lines[len(lines)-10:] {
+				sb.WriteString("- " + l + "\n")
+			}
+		} else {
+			for _, l := range lines {
+				sb.WriteString("- " + l + "\n")
+			}
+		}
+	}
+	if replacementContent != "" {
+		if sb.Len() > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString("+++ Sesudah\n")
+		lines := strings.Split(replacementContent, "\n")
+		if len(lines) > 20 {
+			for _, l := range lines[:10] {
+				sb.WriteString("+ " + l + "\n")
+			}
+			sb.WriteString("+ ... (dipotong)\n")
+			for _, l := range lines[len(lines)-10:] {
+				sb.WriteString("+ " + l + "\n")
+			}
+		} else {
+			for _, l := range lines {
+				sb.WriteString("+ " + l + "\n")
+			}
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func formatWriteContent(codeContent string) string {
+	var sb strings.Builder
+	sb.WriteString("+++ File Baru\n")
+	lines := strings.Split(codeContent, "\n")
+	if len(lines) > 25 {
+		for _, l := range lines[:15] {
+			sb.WriteString("+ " + l + "\n")
+		}
+		sb.WriteString("+ ... (dipotong)\n")
+		for _, l := range lines[len(lines)-10:] {
+			sb.WriteString("+ " + l + "\n")
+		}
+	} else {
+		for _, l := range lines {
+			sb.WriteString("+ " + l + "\n")
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// unescapeTranscriptArg unescapes JSON string quoting used in transcript logs.
+func unescapeTranscriptArg(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "\"") && strings.HasSuffix(raw, "\"") {
+		var decoded string
+		if err := json.Unmarshal([]byte(raw), &decoded); err == nil {
+			return decoded
+		}
+	}
+	return raw
+}
+

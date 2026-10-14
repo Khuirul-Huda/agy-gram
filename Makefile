@@ -29,7 +29,10 @@ pm2-stop:
 	pm2 stop agy-gram
 
 pm2-restart: build
-	pm2 restart agy-gram
+	@touch /tmp/agy_gram_restarting
+	@echo "Scheduling graceful detached restart of agy-gram in 2s..."
+	@nohup sh -c 'sleep 2 && pm2 restart agy-gram' >/dev/null 2>&1 &
+	@echo "Restart scheduled."
 
 pm2-logs:
 	pm2 logs agy-gram
