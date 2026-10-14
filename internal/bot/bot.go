@@ -49,6 +49,7 @@ func (b *Bot) registerBotCommands() {
 		{Text: "new", Description: "Mulai sesi percakapan baru"},
 		{Text: "model", Description: "Pilih model AI (Gemini, Claude, GPT)"},
 		{Text: "effort", Description: "Atur tingkat reasoning effort"},
+		{Text: "lang", Description: "Pilih bahasa / Switch language"},
 		{Text: "mode", Description: "Atur mode (auto, plan, accept-edits)"},
 		{Text: "thinking", Description: "Toggle verbose thinking stream"},
 		{Text: "status", Description: "Cek hardware & status server"},
@@ -107,6 +108,7 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle("/mode", b.handler.HandleMode)
 	b.teleBot.Handle("/model", b.handler.HandleModel)
 	b.teleBot.Handle("/effort", b.handler.HandleEffort)
+	b.teleBot.Handle("/lang", b.handler.HandleLang)
 	b.teleBot.Handle("/thinking", b.handler.HandleThinking)
 	b.teleBot.Handle("/stop", b.handler.HandleCancel)
 	b.teleBot.Handle("/cancel", b.handler.HandleCancel)
@@ -117,6 +119,7 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle(&tele.Btn{Unique: "model_menu"}, b.handler.HandleModelMenuCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "effort_menu"}, b.handler.HandleEffortMenuCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "effort_set"}, b.handler.HandleSetEffortCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "lang_set"}, b.handler.HandleSetLangCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "user_choice"}, b.handler.HandleUserChoiceCallback)
 
 	// Plain text messages routed as agent prompts

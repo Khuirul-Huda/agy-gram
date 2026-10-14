@@ -32,55 +32,21 @@ func NewHandler(runner domain.AgentRunner, session domain.SessionManager, monito
 
 // HandleStart sends the welcome message.
 func (h *Handler) HandleStart(c tele.Context) error {
-	msg := `🚀 <b>Selamat Datang di AGY-Gram!</b>
-
-Jembatan kontrol Telegram untuk Antigravity CLI di server lokal Anda.
-
-<b>Perintah yang tersedia:</b>
-• /help - Panduan lengkap perintah
-• /new - Mulai percakapan sesi baru
-• /status - Cek penggunaan resource server (RAM, CPU, disk)
-• /mode [auto|plan|accept-edits] - Cek atau ubah mode eksekusi
-• /model [opsional: nama_model] - Menu interaktif tombol pilihan model AI
-• /effort [opsional: low|med|high|xhigh|max] - Menu interaktif tingkat reasoning effort
-• /thinking [on|off] - Toggle verbose thinking stream
-• /stop - Hentikan paksa proses agent yang sedang berjalan
-
-Kirimkan pesan teks biasa untuk langsung berinteraksi dengan Antigravity CLI.`
-
-	return c.Send(msg, tele.ModeHTML)
+	lang := h.session.GetLanguage()
+	return c.Send(msgStart(lang), tele.ModeHTML)
 }
 
 // HandleHelp displays available commands and usage guide.
 func (h *Handler) HandleHelp(c tele.Context) error {
-	msg := `📖 <b>Panduan Penggunaan AGY-Gram</b>
-
-1. <b>Kirim Pesan Bebas:</b>
-   Setiap pesan teks yang dikirimkan langsung dieksekusi oleh Antigravity CLI.
-   Sesi chat otomatis bersambung (<code>-c</code>) hingga Anda meresetnya.
-
-2. <b>Notifikasi Real-Time:</b>
-   • Perintah terminal (CMD) yang dijalankan agent akan langsung dikirim ke chat secara real-time.
-   • Jika <code>/thinking on</code> diaktifkan, proses penalaran AI juga akan dikirim sebelum jawaban akhir.
-
-3. <b>Manajemen Sesi:</b>
-   • <code>/new</code> : Mulai topik / sesi percakapan baru dari awal.
-   • <code>/stop</code> : Batalkan tugas agent yang sedang berjalan.
-
-4. <b>Konfigurasi Runtime:</b>
-   • <code>/status</code> : Cek RAM, ZRAM, SSD, dan status server.
-   • <code>/mode [opsi]</code> : Ganti mode agent (misal: <code>/mode plan</code>).
-   • <code>/model</code> : Tampilkan tombol interaktif untuk memilih model AI.
-   • <code>/effort</code> : Tampilkan tombol interaktif untuk memilih reasoning effort.
-   • <code>/thinking [on|off]</code> : Aktifkan / matikan log proses berpikir AI.`
-
-	return c.Send(msg, tele.ModeHTML)
+	lang := h.session.GetLanguage()
+	return c.Send(msgHelp(lang), tele.ModeHTML)
 }
 
 // HandleNew resets the agent conversation context.
 func (h *Handler) HandleNew(c tele.Context) error {
 	h.session.Reset()
-	return c.Send("🔄 <b>Sesi percakapan telah direset.</b> Pesan berikutnya akan memulai sesi baru tanpa konteks lama.", tele.ModeHTML)
+	lang := h.session.GetLanguage()
+	return c.Send(msgNewSession(lang), tele.ModeHTML)
 }
 
 // HandleStatus reports host server hardware resources and agent status.
@@ -244,6 +210,56 @@ func (h *Handler) HandleSetEffortCallback(c tele.Context) error {
 	}
 	text, menu := h.buildEffortMenu()
 	return c.Edit(text, menu, tele.ModeHTML)
+}
+
+// HandleLang displays interactive language buttons or updates the interface language.
+func (h *Handler) HandleLang(c tele.Context) error {
+	args := strings.ToLower(strings.TrimSpace(c.Message().Payload))
+	if args == "id" || args == "indonesia" {
+		h.session.SetLanguage("id")
+		return c.Send("✅ Bahasa antarmuka diubah ke <b>Bahasa Indonesia</b> 🇮🇩.", tele.ModeHTML)
+	}
+	if args == "en" || args == "english" {
+		h.session.SetLanguage("en")
+		return c.Send("✅ Interface language switched to <b>English</b> 🇬🇧.", tele.ModeHTML)
+	}
+
+	text, menu := h.buildLangMenu()
+	return c.Send(text, menu, tele.ModeHTML)
+}
+
+// HandleSetLangCallback processes language selection button clicks.
+func (h *Handler) HandleSetLangCallback(c tele.Context) error {
+	_ = c.Respond()
+	if cb := c.Callback(); cb != nil && cb.Data != "" {
+		h.session.SetLanguage(cb.Data)
+	}
+	text, menu := h.buildLangMenu()
+	return c.Edit(text, menu, tele.ModeHTML)
+}
+
+func (h *Handler) buildLangMenu() (string, *tele.ReplyMarkup) {
+	currentLang := h.session.GetLanguage()
+	text := `🌐 <b>Pilih Bahasa / Select Language</b>
+
+Silakan pilih bahasa antarmuka bot / Please select the bot interface language:`
+
+	menu := &tele.ReplyMarkup{}
+
+	btnIDText := "🇮🇩 Bahasa Indonesia"
+	if currentLang == "id" {
+		btnIDText = "✅ " + btnIDText
+	}
+	btnENText := "🇬🇧 English"
+	if currentLang == "en" {
+		btnENText = "✅ " + btnENText
+	}
+
+	btnID := menu.Data(btnIDText, "lang_set", "id")
+	btnEN := menu.Data(btnENText, "lang_set", "en")
+
+	menu.Inline(menu.Row(btnID, btnEN))
+	return text, menu
 }
 
 func (h *Handler) buildModelMenu() (string, *tele.ReplyMarkup) {
@@ -418,11 +434,12 @@ func (h *Handler) HandleUserChoiceCallback(c tele.Context) error {
 			return c.Send("⚠️ Pilihan telah kadaluarsa atau tidak valid.")
 		}
 		choiceText := val.(string)
+		lang := h.session.GetLanguage()
 
 		// Visually update the message: show chosen option and remove buttons
 		if cb.Message != nil {
 			origText := cb.Message.Text
-			updatedHTML := MarkdownToTelegramHTML(origText) + fmt.Sprintf("\n\n👉 <b>Pilihan Anda:</b> <code>%s</code>", html.EscapeString(choiceText))
+			updatedHTML := MarkdownToTelegramHTML(origText) + "\n\n" + msgChoiceSelected(lang, choiceText)
 			_ = c.Edit(updatedHTML, tele.ModeHTML)
 		}
 
@@ -432,12 +449,16 @@ func (h *Handler) HandleUserChoiceCallback(c tele.Context) error {
 }
 
 func (h *Handler) executePrompt(c tele.Context, prompt string) error {
+	lang := h.session.GetLanguage()
 	if h.runner.IsRunning() {
+		if lang == "en" {
+			return c.Send("⚠️ Agent is already processing a request. Use /stop to cancel it.")
+		}
 		return c.Send("⚠️ Agent sedang memproses permintaan sebelumnya. Gunakan /stop jika ingin membatalkannya.")
 	}
 
 	// 1. Fast ACK: Send immediate reply to acknowledge receipt and prevent client timeout
-	ackMsg, ackErr := c.Bot().Send(c.Recipient(), "⏳ <i>Sedang memproses instruksi Anda...</i>", tele.ModeHTML)
+	ackMsg, ackErr := c.Bot().Send(c.Recipient(), msgFastAck(lang), tele.ModeHTML)
 
 	// 2. Start continuous periodic typing indicator ticker
 	stopTyping := make(chan struct{})
@@ -452,17 +473,21 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 		Effort:          h.session.GetEffort(),
 		VerboseThinking: h.session.IsThinkingEnabled(),
 		OnCommand: func(cmd string) {
-			escapedCmd := html.EscapeString(cmd)
-			msg := fmt.Sprintf("⚙️ <b>Menjalankan Perintah:</b>\n<pre><code class=\"language-bash\">%s</code></pre>", escapedCmd)
+			msg := msgCommandHeader(lang, cmd)
 			if err := c.Send(msg, tele.ModeHTML); err != nil {
 				_ = c.Send(fmt.Sprintf("⚙️ Menjalankan Perintah:\n%s", cmd))
+			}
+		},
+		OnFileEdit: func(toolName, targetFile, diff string) {
+			msg := msgFileEditHeader(lang, toolName, targetFile, diff)
+			if err := c.Send(msg, tele.ModeHTML); err != nil {
+				_ = c.Send(fmt.Sprintf("📝 %s: %s\n%s", toolName, targetFile, diff))
 			}
 		},
 		OnThinking: func(thinking string) {
 			chunks := SplitMessage(thinking)
 			for _, chunk := range chunks {
-				escapedThinking := html.EscapeString(chunk)
-				msg := fmt.Sprintf("🧠 <b>Thinking Process:</b>\n<blockquote>%s</blockquote>", escapedThinking)
+				msg := msgThinkingHeader(lang, chunk)
 				if err := c.Send(msg, tele.ModeHTML); err != nil {
 					_ = c.Send("🧠 Thinking Process:\n" + chunk)
 				}
@@ -481,9 +506,16 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 
 	if err != nil {
 		if errors.Is(err, domain.ErrExecutionCancelled) {
+			if lang == "en" {
+				return c.Send("🛑 Request cancelled.")
+			}
 			return c.Send("🛑 Permintaan dibatalkan.")
 		}
-		return c.Send(fmt.Sprintf("❌ <b>Error saat menjalankan agent:</b>\n<pre><code>%s</code></pre>", html.EscapeString(err.Error())), tele.ModeHTML)
+		errTitle := "Error saat menjalankan agent:"
+		if lang == "en" {
+			errTitle = "Error executing agent:"
+		}
+		return c.Send(fmt.Sprintf("❌ <b>%s</b>\n<pre><code>%s</code></pre>", errTitle, html.EscapeString(err.Error())), tele.ModeHTML)
 	}
 
 	// Mark session as continuous after successful turn
@@ -498,7 +530,7 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 		htmlContent := MarkdownToTelegramHTML(chunk)
 		if i == len(chunks)-1 {
 			// Append elapsed time footer on the last chunk AFTER html conversion (prevents <i> escaping bug)
-			htmlContent = fmt.Sprintf("%s\n\n⏱️ <i>(Selesai dalam %v)</i>", htmlContent, elapsed)
+			htmlContent = fmt.Sprintf("%s\n\n%s", htmlContent, msgElapsedFooter(lang, elapsed))
 
 			if len(buttons) > 0 {
 				menu := &tele.ReplyMarkup{}

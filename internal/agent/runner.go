@@ -117,10 +117,10 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 	var (
 		conversationID string
 		finalResponse  string
-		textDeltas     strings.Builder
-		rawStdout      strings.Builder
-		minStepIndex   = -1
-		seenToolSteps  = make(map[int]bool)
+		textDeltas        strings.Builder
+		rawStdout         strings.Builder
+		seenToolSteps     = make(map[int]bool)
+		seenThinkingSteps = make(map[int]bool)
 	)
 
 	// Stream read stdout line by line
@@ -154,18 +154,59 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 				conversationID = step.ConversationID
 			}
 
-			if minStepIndex == -1 {
-				minStepIndex = step.StepIndex
+			// 1. Real-time thinking polling: stream thinking as soon as it appears in transcript
+			if opts.VerboseThinking && opts.OnThinking != nil && conversationID != "" {
+				for _, th := range pollNewThinking(conversationID, seenThinkingSteps) {
+					opts.OnThinking(th)
+				}
 			}
 
-			// Capture tool execution (specifically run_command)
-			if step.StepType == "tool" && step.ToolName == "run_command" && step.State == "ACTIVE" {
+			// 2. Capture tool executions (run_command, replace_file_content, write_to_file)
+			if step.StepType == "tool" && step.State == "ACTIVE" {
 				if !seenToolSteps[step.StepIndex] {
 					seenToolSteps[step.StepIndex] = true
-					if opts.OnCommand != nil && step.ToolInfo != nil && step.ToolInfo.Parameters != nil {
-						if cmdVal, ok := step.ToolInfo.Parameters["CommandLine"]; ok {
-							if cmdStr, okStr := cmdVal.(string); okStr && strings.TrimSpace(cmdStr) != "" {
-								opts.OnCommand(strings.TrimSpace(cmdStr))
+					if step.ToolInfo != nil && step.ToolInfo.Parameters != nil {
+						params := step.ToolInfo.Parameters
+						switch step.ToolName {
+						case "run_command":
+							if opts.OnCommand != nil {
+								if cmdVal, ok := params["CommandLine"]; ok {
+									if cmdStr, okStr := cmdVal.(string); okStr && strings.TrimSpace(cmdStr) != "" {
+										opts.OnCommand(strings.TrimSpace(cmdStr))
+									}
+								}
+							}
+						case "replace_file_content":
+							if opts.OnFileEdit != nil {
+								targetFile, _ := params["TargetFile"].(string)
+								instruction, _ := params["Instruction"].(string)
+								targetContent, _ := params["TargetContent"].(string)
+								replacementContent, _ := params["ReplacementContent"].(string)
+
+								var diffBuilder strings.Builder
+								if instruction != "" {
+									diffBuilder.WriteString(fmt.Sprintf("Instruction: %s\n\n", instruction))
+								}
+								if targetContent != "" || replacementContent != "" {
+									diffBuilder.WriteString("--- Target:\n" + truncateSnippet(targetContent, 400) + "\n\n")
+									diffBuilder.WriteString("+++ Replacement:\n" + truncateSnippet(replacementContent, 400))
+								}
+								opts.OnFileEdit("replace_file_content", targetFile, diffBuilder.String())
+							}
+						case "write_to_file":
+							if opts.OnFileEdit != nil {
+								targetFile, _ := params["TargetFile"].(string)
+								desc, _ := params["Description"].(string)
+								codeContent, _ := params["CodeContent"].(string)
+
+								var diffBuilder strings.Builder
+								if desc != "" {
+									diffBuilder.WriteString(fmt.Sprintf("Description: %s\n\n", desc))
+								}
+								if codeContent != "" {
+									diffBuilder.WriteString("Content:\n" + truncateSnippet(codeContent, 500))
+								}
+								opts.OnFileEdit("write_to_file", targetFile, diffBuilder.String())
 							}
 						}
 					}
@@ -185,6 +226,13 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 			if ev.Result.Response != "" {
 				finalResponse = ev.Result.Response
 			}
+		}
+	}
+
+	// Final check for any remaining thinking blocks
+	if opts.VerboseThinking && opts.OnThinking != nil && conversationID != "" {
+		for _, th := range pollNewThinking(conversationID, seenThinkingSteps) {
+			opts.OnThinking(th)
 		}
 	}
 
@@ -216,13 +264,6 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 	}
 	if strings.TrimSpace(output) == "" {
 		output = "(No output returned by agent)"
-	}
-
-	// If verbose thinking is requested, extract thinking trace from transcript
-	if opts.VerboseThinking && opts.OnThinking != nil && conversationID != "" {
-		if thinking := extractThinkingFromTranscript(conversationID, minStepIndex); thinking != "" {
-			opts.OnThinking(thinking)
-		}
 	}
 
 	return strings.TrimSpace(output), nil
@@ -281,24 +322,26 @@ func (r *Runner) cleanupProcess() {
 	r.cancelFn = nil
 }
 
-// extractThinkingFromTranscript parses transcript files for thinking blocks.
-func extractThinkingFromTranscript(convID string, minStepIndex int) string {
+// pollNewThinking parses new thinking blocks from transcript that haven't been emitted yet.
+func pollNewThinking(convID string, seenSteps map[int]bool) []string {
+	if convID == "" {
+		return nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ""
+		return nil
 	}
 
-	// Check transcript.jsonl first, then fallback to transcript_full.jsonl if needed
 	baseDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", convID, ".system_generated", "logs")
 	transcriptPath := filepath.Join(baseDir, "transcript.jsonl")
 
 	f, err := os.Open(transcriptPath)
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer f.Close()
 
-	var thoughts []string
+	var newThoughts []string
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 64*1024)
 	scanner.Buffer(buf, 2*1024*1024)
@@ -311,13 +354,22 @@ func extractThinkingFromTranscript(convID string, minStepIndex int) string {
 			Thinking  string `json:"thinking"`
 		}
 		if err := json.Unmarshal(line, &step); err == nil {
-			if (minStepIndex < 0 || step.StepIndex >= minStepIndex) && step.Type == "PLANNER_RESPONSE" {
+			if step.Type == "PLANNER_RESPONSE" && !seenSteps[step.StepIndex] {
+				seenSteps[step.StepIndex] = true
 				if th := strings.TrimSpace(step.Thinking); th != "" {
-					thoughts = append(thoughts, th)
+					newThoughts = append(newThoughts, th)
 				}
 			}
 		}
 	}
 
-	return strings.Join(thoughts, "\n\n")
+	return newThoughts
+}
+
+func truncateSnippet(s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "\n...(dipotong karena panjang)"
 }

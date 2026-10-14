@@ -13,6 +13,7 @@ type PromptOptions struct {
 	Effort          string
 	VerboseThinking bool
 	OnCommand       func(cmd string)
+	OnFileEdit      func(toolName, targetFile, diff string)
 	OnThinking      func(thinking string)
 }
 
@@ -43,6 +44,8 @@ type SessionManager interface {
 	SetModel(model string)
 	GetEffort() string
 	SetEffort(effort string)
+	GetLanguage() string
+	SetLanguage(lang string)
 	IsThinkingEnabled() bool
 	SetThinkingEnabled(enabled bool)
 	Reset()

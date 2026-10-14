@@ -13,6 +13,7 @@ type Session struct {
 	mode            string
 	model           string
 	effort          string
+	language        string
 	thinkingEnabled bool
 }
 
@@ -23,6 +24,7 @@ func NewSession(defaultMode, defaultModel string, defaultThinking bool) *Session
 		mode:            defaultMode,
 		model:           defaultModel,
 		effort:          "",
+		language:        "id",
 		thinkingEnabled: defaultThinking,
 	}
 }
@@ -81,6 +83,23 @@ func (s *Session) SetEffort(effort string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.effort = effort
+}
+
+// GetLanguage returns the current UI language (id/en).
+func (s *Session) GetLanguage() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.language == "" {
+		return "id"
+	}
+	return s.language
+}
+
+// SetLanguage sets the UI language.
+func (s *Session) SetLanguage(lang string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.language = lang
 }
 
 // IsThinkingEnabled returns whether verbose thinking is enabled.

@@ -42,6 +42,14 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Errorf("expected thinkingEnabled to be true")
 	}
 
+	if s.GetLanguage() != "id" {
+		t.Errorf("expected default language 'id', got '%s'", s.GetLanguage())
+	}
+	s.SetLanguage("en")
+	if s.GetLanguage() != "en" {
+		t.Errorf("expected language 'en', got '%s'", s.GetLanguage())
+	}
+
 	s.Reset()
 	if s.ShouldContinue() {
 		t.Errorf("expected continueSession to be reset to false")
