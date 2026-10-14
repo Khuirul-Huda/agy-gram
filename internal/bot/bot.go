@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -70,7 +71,7 @@ func (b *Bot) registerMiddlewares() {
 					"username", sender.Username,
 					"first_name", sender.FirstName,
 				)
-				return c.Send("⛔ *Akses Ditolak*\nID Telegram Anda tidak terdaftar dalam whitelist server ini.", tele.ModeMarkdown)
+				return c.Send(fmt.Sprintf("⛔ *Akses Ditolak*\nUser ID Telegram Anda: `%d`\n\nSilakan daftarkan ID ini ke file `.env` di variabel `ALLOWED_USER_IDS`.", sender.ID), tele.ModeMarkdown)
 			}
 
 			return next(c)
