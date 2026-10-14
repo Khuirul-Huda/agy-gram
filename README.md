@@ -1,12 +1,14 @@
 # AGY-Gram 🤖⚡
 
-**AGY-Gram** adalah jembatan (*bridge service*) ringan dan efisien berbasis **Golang** untuk mengontrol **Google Antigravity CLI (`agy`)** langsung dari aplikasi **Telegram**.
+[English](README.md) | [Bahasa Indonesia](README.id.md)
 
-Dirancang dengan prinsip arsitektur bersih (*Clean Principles* / *Clean Architecture* & *SOLID*), AGY-Gram memiliki jejak memori sangat rendah (~10-15 MB RAM), menjadikannya solusi ideal untuk server berdaya rendah seperti Intel Celeron / single-board computer tanpa membebani resource sistem.
+**AGY-Gram** is a lightweight, high-performance bridge service written in **Golang** designed to control the **Google Antigravity CLI (`agy`)** directly from **Telegram**.
+
+Architected around **Clean Architecture** and **SOLID** principles, AGY-Gram operates with an ultra-low memory footprint (~10-15 MB RAM). This makes it ideal for running on low-power home servers (such as Intel Celeron or single-board computers) without competing for system resources.
 
 ---
 
-## 🏗️ Arsitektur & Clean Principles
+## 🏗️ Architecture & Clean Principles
 
 ```text
        Telegram Long-Polling
@@ -33,108 +35,108 @@ Antigravity CLI
 (`agy -p ...`)
 ```
 
-- **Separation of Concerns & Hexagonal Architecture:** Inti domain tidak memiliki dependensi terhadap framework Telegram maupun library eksternal.
-- **Process Group Isolation:** Menjalankan child process dengan `Setpgid: true` sehingga pembatalan tugas (`/stop`) atau timeout membunuh seluruh grup proses tanpa meninggalkan *zombie process*.
-- **Concurrency Safety:** Dilengkapi mutex lock agar eksekusi CLI tidak saling tumpang tindih pada CPU multi-thread terbatas.
-- **Auto-Chunking:** Memecah teks output secara cerdas sesuai batas 4096 karakter Telegram tanpa memotong blok kode secara sembarangan.
-- **Typing Heartbeat:** Mengirim indikator status `"typing..."` secara berkala ke Telegram selama agent memproses instruksi.
+- **Separation of Concerns & Hexagonal Architecture:** The core domain logic has zero dependencies on Telegram libraries, CLI frameworks, or external infrastructure.
+- **Process Group Isolation:** Spawns child processes with `Setpgid: true` so cancellation (`/stop`) or timeouts terminate the entire process group cleanly without orphaned zombie processes.
+- **Concurrency Safety:** Mutex synchronization prevents overlapping executions, protecting constrained multi-threaded CPUs from thrashing.
+- **Smart Chunking:** Intelligently splits agent responses across Telegram's 4096-character limit without breaking code blocks or words awkwardly.
+- **Typing Heartbeat:** Keeps a continuous `"typing..."` action alive on Telegram while the AI agent reasons and executes long-running tasks.
 
 ---
 
-## 📋 Daftar Perintah Telegram
+## 📋 Telegram Commands
 
-| Perintah | Deskripsi |
+| Command | Description |
 | :--- | :--- |
-| **`/start`** | Pesan sambutan dan status koneksi bot. |
-| **`/help`** | Panduan lengkap penggunaan dan daftar perintah. |
-| **`/new`** | Reset konteks sesi perbincangan (memulai percakapan baru tanpa flag `-c`). |
-| **`/status`** | Cek metrik hardware server (CPU, RAM, ZRAM, SSD) dan status agent. |
-| **`/mode [auto\|plan\|accept-edits]`** | Cek atau ubah mode eksekusi Antigravity CLI. |
-| **`/model [nama_model]`** | Cek atau atur model AI override (gunakan `/model reset` untuk kembali ke default). |
-| **`/stop`** atau **`/cancel`** | Hentikan paksa tugas agent yang sedang berpikir atau berjalan. |
-| *Pesan Teks Biasa* | Setiap pesan non-perintah otomatis dieksekusi sebagai prompt interaktif ke `agy`. |
+| **`/start`** | Welcome greeting and bot connectivity verification. |
+| **`/help`** | Full command reference and usage guide. |
+| **`/new`** | Reset session context (starts a fresh session without the `-c` continue flag). |
+| **`/status`** | Real-time host hardware metrics (CPU, RAM, ZRAM Swap, SSD) and agent state. |
+| **`/mode [auto\|plan\|accept-edits]`** | Inspect or switch Antigravity execution mode. |
+| **`/model [model_name]`** | Inspect or set model override (use `/model reset` to restore default). |
+| **`/stop`** or **`/cancel`** | Terminate any active agent process group immediately. |
+| *Plain Text Message* | Any text message is forwarded as an interactive prompt to `agy`. |
 
 ---
 
-## ⚙️ Konfigurasi (`.env`)
+## ⚙️ Configuration (`.env`)
 
-Salin template konfigurasi `.env.example` ke `.env`:
+Copy the configuration template:
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-Isi variabel berikut:
+Configure the environment variables:
 
 ```ini
-# Token bot Telegram dari @BotFather
+# Telegram bot token obtained from @BotFather
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ
 
-# ID Telegram Anda (pisahkan dengan koma jika lebih dari satu)
-# Pesan dari user selain ID ini otomatis ditolak demi keamanan server.
+# Authorized Telegram User IDs (comma-separated for multiple users)
+# Requests from any ID not in this list are rejected.
 ALLOWED_USER_IDS=123456789
 
-# Path binary Antigravity CLI (default: agy)
+# Path to the Antigravity binary (default: agy)
 AGY_BIN_PATH=agy
 
-# Working directory saat menjalankan agy
+# Working directory where agy commands will execute
 AGY_WORKING_DIR=/home/huda
 
-# Batas waktu eksekusi per prompt (dalam menit, default: 5)
+# Execution timeout per prompt turn (in minutes, default: 5)
 AGY_TIMEOUT_MINUTES=5
 
-# Mode default (auto, plan, accept-edits)
+# Default execution mode (auto, plan, accept-edits)
 AGY_DEFAULT_MODE=auto
 
-# Model default (opsional, kosongkan untuk menggunakan default CLI)
+# Default AI model override (optional, leave empty for CLI default)
 AGY_DEFAULT_MODEL=
 ```
 
 > [!IMPORTANT]
-> **Cara Mengetahui Telegram User ID Anda:**  
-> Kirim pesan ke bot `@userinfobot` di Telegram untuk melihat User ID numerik Anda.
+> **Finding your Telegram User ID:**  
+> Message `@userinfobot` on Telegram to obtain your numeric account ID.
 
 ---
 
-## 🚀 Kompilasi & Menjalankan (Production dengan PM2)
+## 🚀 Building & Running (Production with PM2)
 
-### 1. Kompilasi Binary
+### 1. Build Binary
 
 ```bash
 make build
 ```
-File binary ELF standalone akan dibuat di `bin/agy-gram` (ukuran ~6 MB).
+Generates a standalone, static ELF binary in `bin/agy-gram` (~6 MB).
 
-### 2. Jalankan di Background via PM2
+### 2. Run Daemon with PM2
 
 ```bash
-# Menjalankan daemon via PM2
+# Start background daemon via PM2
 make pm2-start
-# atau: pm2 start ecosystem.config.js
+# or: pm2 start ecosystem.config.js
 
-# Cek status dan penggunaan RAM
+# Check status and memory consumption
 pm2 status
 
-# Melihat log streaming
+# Tail real-time logs
 make pm2-logs
-# atau: pm2 logs agy-gram
+# or: pm2 logs agy-gram
 
-# Simpan konfigurasi agar auto-start saat reboot
+# Save PM2 process list across system reboots
 pm2 save
 ```
 
-### 3. Perintah Tambahan (Makefile)
+### 3. Makefile Targets
 
-- `make test` : Menjalankan automated unit tests.
-- `make clean` : Menghapus artefak build.
-- `make pm2-restart` : Kompilasi ulang dan restart service PM2.
-- `make pm2-stop` : Menghentikan service di PM2.
+- `make test` : Execute automated unit tests.
+- `make clean` : Remove build binaries.
+- `make pm2-restart` : Recompile binary and reload PM2 service.
+- `make pm2-stop` : Stop the PM2 service.
 
 ---
 
-## 🔒 Keamanan (Security Hardening)
+## 🔒 Security Hardening
 
-1. **Whitelist Middleware**: Bot tidak akan memproses atau merespons instruksi dari User ID yang tidak terdaftar di `ALLOWED_USER_IDS`.
-2. **Localhost Only**: Menggunakan Telegram Long-Polling via HTTPS keluar (`outbound-only`), sehingga **tidak perlu membuka port router/firewall UFW** ke internet publik.
-3. **Graceful Shutdown**: Menangani sinyal `SIGINT` dan `SIGTERM` secara bersih, memastikan semua sub-proses dan koneksi ditutup dengan tertib.
+1. **User Whitelist**: Strictly enforces allowed Telegram User IDs at the middleware level.
+2. **Outbound Long-Polling**: Connects to Telegram via HTTPS outbound long-polling only; **no open inbound ports or public IP exposure required**.
+3. **Graceful Teardown**: Listens for `SIGINT` / `SIGTERM` signals to cleanly abort active child processes before shutting down.
