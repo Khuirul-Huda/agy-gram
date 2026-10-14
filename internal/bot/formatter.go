@@ -184,3 +184,27 @@ func MarkdownToTelegramHTML(input string) string {
 
 	return processed
 }
+
+var buttonsRegex = regexp.MustCompile(`(?i)\[(?:BUTTONS|CONFIRM):\s*([^\]]+)\]`)
+
+// ExtractInteractiveButtons parses [BUTTONS: opt1 | opt2] or [CONFIRM: opt1 | opt2] from text.
+// It returns the cleaned text without the tag, and the list of button labels.
+func ExtractInteractiveButtons(text string) (string, []string) {
+	match := buttonsRegex.FindStringSubmatch(text)
+	if match == nil {
+		return text, nil
+	}
+
+	rawButtons := match[1]
+	parts := strings.Split(rawButtons, "|")
+	var buttons []string
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			buttons = append(buttons, trimmed)
+		}
+	}
+
+	cleanText := strings.TrimSpace(buttonsRegex.ReplaceAllString(text, ""))
+	return cleanText, buttons
+}

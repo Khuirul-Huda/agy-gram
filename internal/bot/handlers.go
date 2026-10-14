@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Khuirul-Huda/agy-gram/internal/domain"
@@ -14,9 +15,10 @@ import (
 
 // Handler holds dependencies for processing Telegram bot commands and messages.
 type Handler struct {
-	runner  domain.AgentRunner
-	session domain.SessionManager
-	monitor domain.MetricsCollector
+	runner      domain.AgentRunner
+	session     domain.SessionManager
+	monitor     domain.MetricsCollector
+	choiceCache sync.Map
 }
 
 // NewHandler creates a new Handler instance.
@@ -403,7 +405,33 @@ func (h *Handler) HandlePrompt(c tele.Context) error {
 	if prompt == "" {
 		return nil
 	}
+	return h.executePrompt(c, prompt)
+}
 
+// HandleUserChoiceCallback handles clicks on dynamically generated confirmation/choice buttons.
+func (h *Handler) HandleUserChoiceCallback(c tele.Context) error {
+	_ = c.Respond()
+	if cb := c.Callback(); cb != nil && cb.Data != "" {
+		choiceID := cb.Data
+		val, ok := h.choiceCache.Load(choiceID)
+		if !ok {
+			return c.Send("⚠️ Pilihan telah kadaluarsa atau tidak valid.")
+		}
+		choiceText := val.(string)
+
+		// Visually update the message: show chosen option and remove buttons
+		if cb.Message != nil {
+			origText := cb.Message.Text
+			updatedHTML := MarkdownToTelegramHTML(origText) + fmt.Sprintf("\n\n👉 <b>Pilihan Anda:</b> <code>%s</code>", html.EscapeString(choiceText))
+			_ = c.Edit(updatedHTML, tele.ModeHTML)
+		}
+
+		return h.executePrompt(c, choiceText)
+	}
+	return nil
+}
+
+func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 	if h.runner.IsRunning() {
 		return c.Send("⚠️ Agent sedang memproses permintaan sebelumnya. Gunakan /stop jika ingin membatalkannya.")
 	}
@@ -461,13 +489,41 @@ func (h *Handler) HandlePrompt(c tele.Context) error {
 	// Mark session as continuous after successful turn
 	h.session.SetContinue(true)
 
+	// Extract interactive confirmation/choice buttons from output
+	cleanOutput, buttons := ExtractInteractiveButtons(output)
+
 	// Send output with chunks rendered in Telegram HTML
-	chunks := SplitMessage(output)
+	chunks := SplitMessage(cleanOutput)
 	for i, chunk := range chunks {
 		htmlContent := MarkdownToTelegramHTML(chunk)
 		if i == len(chunks)-1 {
 			// Append elapsed time footer on the last chunk AFTER html conversion (prevents <i> escaping bug)
 			htmlContent = fmt.Sprintf("%s\n\n⏱️ <i>(Selesai dalam %v)</i>", htmlContent, elapsed)
+
+			if len(buttons) > 0 {
+				menu := &tele.ReplyMarkup{}
+				var rows []tele.Row
+				var rowBtns []tele.Btn
+				for idx, btnText := range buttons {
+					choiceID := fmt.Sprintf("ch_%d_%d", time.Now().UnixNano()%10000000, idx)
+					h.choiceCache.Store(choiceID, btnText)
+					btn := menu.Data(btnText, "user_choice", choiceID)
+					rowBtns = append(rowBtns, btn)
+					if len(rowBtns) == 2 {
+						rows = append(rows, menu.Row(rowBtns...))
+						rowBtns = nil
+					}
+				}
+				if len(rowBtns) > 0 {
+					rows = append(rows, menu.Row(rowBtns...))
+				}
+				menu.Inline(rows...)
+
+				if err := c.Send(htmlContent, menu, tele.ModeHTML); err != nil {
+					_ = c.Send(chunk, menu, tele.NoPreview)
+				}
+				continue
+			}
 		}
 
 		if err := c.Send(htmlContent, tele.ModeHTML); err != nil {

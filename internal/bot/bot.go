@@ -37,8 +37,28 @@ func NewBot(cfg *config.Config, handler *Handler) (*Bot, error) {
 
 	bot.registerMiddlewares()
 	bot.registerRoutes()
+	bot.registerBotCommands()
 
 	return bot, nil
+}
+
+func (b *Bot) registerBotCommands() {
+	cmds := []tele.Command{
+		{Text: "start", Description: "Mulai dan info bot"},
+		{Text: "help", Description: "Panduan lengkap penggunaan"},
+		{Text: "new", Description: "Mulai sesi percakapan baru"},
+		{Text: "model", Description: "Pilih model AI (Gemini, Claude, GPT)"},
+		{Text: "effort", Description: "Atur tingkat reasoning effort"},
+		{Text: "mode", Description: "Atur mode (auto, plan, accept-edits)"},
+		{Text: "thinking", Description: "Toggle verbose thinking stream"},
+		{Text: "status", Description: "Cek hardware & status server"},
+		{Text: "stop", Description: "Hentikan proses yang sedang berjalan"},
+	}
+	if err := b.teleBot.SetCommands(cmds); err != nil {
+		slog.Warn("Gagal mendaftarkan menu perintah bot ke Telegram", "err", err)
+	} else {
+		slog.Info("Menu perintah bot berhasil didaftarkan ke Telegram")
+	}
 }
 
 // Start begins listening for updates (blocking).
@@ -97,6 +117,7 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle(&tele.Btn{Unique: "model_menu"}, b.handler.HandleModelMenuCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "effort_menu"}, b.handler.HandleEffortMenuCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "effort_set"}, b.handler.HandleSetEffortCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "user_choice"}, b.handler.HandleUserChoiceCallback)
 
 	// Plain text messages routed as agent prompts
 	b.teleBot.Handle(tele.OnText, b.handler.HandlePrompt)

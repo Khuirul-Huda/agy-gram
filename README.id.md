@@ -39,7 +39,9 @@ Antigravity CLI
 - **Process Group Isolation:** Menjalankan child process dengan `Setpgid: true` sehingga pembatalan tugas (`/stop`) atau timeout membunuh seluruh grup proses tanpa meninggalkan *zombie process*.
 - **Concurrency Safety:** Dilengkapi mutex lock agar eksekusi CLI tidak saling tumpang tindih pada CPU multi-thread terbatas.
 - **Auto-Chunking:** Memecah teks output secara cerdas sesuai batas 4096 karakter Telegram tanpa memotong blok kode secara sembarangan.
-- **Typing Heartbeat:** Mengirim indikator status `"typing..."` secara berkala ke Telegram selama agent memproses instruksi.
+- **Typing Heartbeat & Fast ACK:** Mengirim balasan cepat penanda proses dan indikator `"typing..."` berkala agar koneksi Telegram tidak timeout.
+- **Tombol Interaktif Otomatis (`[CONFIRM:]` & `[BUTTONS:]`):** Mengubah format tag konfirmasi/pilihan AI menjadi tombol Inline Keyboard Telegram yang langsung dapat diklik.
+- **Menu Perintah Native Telegram:** Mendaftarkan perintah otomatis ke Telegram API (`SetCommands`) sehingga tombol native "Menu" muncul di chat.
 
 ---
 
@@ -52,7 +54,8 @@ Antigravity CLI
 | **`/new`** | Reset konteks sesi perbincangan (memulai percakapan baru tanpa flag `-c`). |
 | **`/status`** | Cek metrik hardware server (CPU, RAM, ZRAM, SSD) dan status agent. |
 | **`/mode [auto\|plan\|accept-edits]`** | Cek atau ubah mode eksekusi Antigravity CLI. |
-| **`/model [nama_model]`** | Cek atau atur model AI override (gunakan `/model reset` untuk kembali ke default). |
+| **`/model [nama_model]`** | Menu tombol interaktif atau teks override untuk model AI. |
+| **`/effort [level]`** | Menu tombol interaktif atau teks override untuk reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`). |
 | **`/thinking [on\|off]`** | Cek atau ubah pengaturan streaming proses berpikir AI ke Telegram. |
 | **`/stop`** atau **`/cancel`** | Hentikan paksa tugas agent yang sedang berpikir atau berjalan. |
 | *Pesan Teks Biasa* | Setiap pesan non-perintah otomatis dieksekusi sebagai prompt interaktif ke `agy`. |

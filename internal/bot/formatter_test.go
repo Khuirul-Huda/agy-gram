@@ -93,3 +93,28 @@ func TestMarkdownToTelegramHTML_ItalicsAndQuotes(t *testing.T) {
 		t.Errorf("snake_case incorrectly converted to italic: %s", output)
 	}
 }
+
+func TestExtractInteractiveButtons(t *testing.T) {
+	input := "Apakah Anda ingin melanjutkan penginstalan?\n\n[CONFIRM: Ya, Lanjutkan | Batalkan]"
+	cleanText, buttons := ExtractInteractiveButtons(input)
+
+	if len(buttons) != 2 {
+		t.Fatalf("expected 2 buttons, got %d", len(buttons))
+	}
+	if buttons[0] != "Ya, Lanjutkan" || buttons[1] != "Batalkan" {
+		t.Errorf("unexpected buttons parsed: %v", buttons)
+	}
+	if strings.Contains(cleanText, "[CONFIRM:") {
+		t.Errorf("tag was not stripped from cleanText: %s", cleanText)
+	}
+	if cleanText != "Apakah Anda ingin melanjutkan penginstalan?" {
+		t.Errorf("unexpected cleanText: %q", cleanText)
+	}
+
+	// Test no buttons
+	noBtnInput := "Halo ini pesan biasa."
+	text, emptyBtns := ExtractInteractiveButtons(noBtnInput)
+	if len(emptyBtns) != 0 || text != noBtnInput {
+		t.Errorf("expected no buttons on regular message, got %v", emptyBtns)
+	}
+}

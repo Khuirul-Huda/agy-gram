@@ -39,7 +39,9 @@ Antigravity CLI
 - **Process Group Isolation:** Spawns child processes with `Setpgid: true` so cancellation (`/stop`) or timeouts terminate the entire process group cleanly without orphaned zombie processes.
 - **Concurrency Safety:** Mutex synchronization prevents overlapping executions, protecting constrained multi-threaded CPUs from thrashing.
 - **Smart Chunking:** Intelligently splits agent responses across Telegram's 4096-character limit without breaking code blocks or words awkwardly.
-- **Typing Heartbeat:** Keeps a continuous `"typing..."` action alive on Telegram while the AI agent reasons and executes long-running tasks.
+- **Typing Heartbeat & Fast ACK:** Sends an immediate placeholder reply and continuous typing indicator while the agent reasons and executes tasks to prevent timeouts.
+- **Interactive Buttons (`[CONFIRM:]` & `[BUTTONS:]`):** When the AI outputs `[CONFIRM: Yes | No]` or `[BUTTONS: Opt1 | Opt2]`, AGY-Gram converts them into clickable Telegram Inline Keyboard buttons.
+- **Native Command Menu:** Automatically registers commands on startup via `SetCommands` so Telegram displays the native "Menu" button.
 
 ---
 
@@ -52,7 +54,8 @@ Antigravity CLI
 | **`/new`** | Reset session context (starts a fresh session without the `-c` continue flag). |
 | **`/status`** | Real-time host hardware metrics (CPU, RAM, ZRAM Swap, SSD) and agent state. |
 | **`/mode [auto\|plan\|accept-edits]`** | Inspect or switch Antigravity execution mode. |
-| **`/model [model_name]`** | Inspect or set model override (use `/model reset` to restore default). |
+| **`/model [model_name]`** | Interactive button menu or text override for AI models. |
+| **`/effort [level]`** | Interactive button menu or text override for reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`). |
 | **`/thinking [on\|off]`** | Inspect or toggle verbose AI reasoning stream to Telegram. |
 | **`/stop`** or **`/cancel`** | Terminate any active agent process group immediately. |
 | *Plain Text Message* | Any text message is forwarded as an interactive prompt to `agy`. |
