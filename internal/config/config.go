@@ -14,6 +14,7 @@ import (
 // Config holds all application configurations.
 type Config struct {
 	TelegramBotToken string
+	TelegramProxy    string
 	AllowedUserIDs   map[int64]struct{}
 	AgyBinPath       string
 	AgyWorkingDir    string
@@ -59,8 +60,14 @@ func Load() (*Config, error) {
 	verboseThinkingStr := strings.ToLower(strings.TrimSpace(os.Getenv("AGY_VERBOSE_THINKING")))
 	verboseThinking := verboseThinkingStr == "true" || verboseThinkingStr == "1" || verboseThinkingStr == "yes"
 
+	telegramProxy := strings.TrimSpace(os.Getenv("TELEGRAM_PROXY"))
+	if telegramProxy == "" {
+		telegramProxy = strings.TrimSpace(os.Getenv("HTTPS_PROXY"))
+	}
+
 	return &Config{
 		TelegramBotToken: token,
+		TelegramProxy:    telegramProxy,
 		AllowedUserIDs:   allowedUserIDs,
 		AgyBinPath:       agyBinPath,
 		AgyWorkingDir:    agyWorkingDir,

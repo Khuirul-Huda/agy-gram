@@ -3,6 +3,8 @@ package bot
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/Khuirul-Huda/agy-gram/internal/config"
@@ -21,9 +23,22 @@ type Bot struct {
 
 // NewBot initializes a new Telegram bot instance.
 func NewBot(cfg *config.Config, handler *Handler, session domain.SessionManager) (*Bot, error) {
+	client := &http.Client{Timeout: time.Minute}
+	if cfg.TelegramProxy != "" {
+		if proxyURL, err := url.Parse(cfg.TelegramProxy); err == nil {
+			client.Transport = &http.Transport{
+				Proxy: http.ProxyURL(proxyURL),
+			}
+			slog.Info("Using configured outbound proxy for Telegram Bot API", "proxy", cfg.TelegramProxy)
+		} else {
+			slog.Warn("Failed to parse Telegram proxy URL, falling back to direct connection", "error", err)
+		}
+	}
+
 	pref := tele.Settings{
 		Token:  cfg.TelegramBotToken,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
+		Client: client,
 	}
 
 	b, err := tele.NewBot(pref)

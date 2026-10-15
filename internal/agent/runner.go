@@ -103,6 +103,20 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 		cmd.Dir = r.workingDir
 	}
 
+	// Ensure agy CLI process NEVER inherits any proxy; it must run 100% direct without proxy
+	var cleanEnv []string
+	for _, env := range os.Environ() {
+		upper := strings.ToUpper(env)
+		if strings.HasPrefix(upper, "HTTP_PROXY=") ||
+			strings.HasPrefix(upper, "HTTPS_PROXY=") ||
+			strings.HasPrefix(upper, "ALL_PROXY=") ||
+			strings.HasPrefix(upper, "TELEGRAM_PROXY=") {
+			continue
+		}
+		cleanEnv = append(cleanEnv, env)
+	}
+	cmd.Env = cleanEnv
+
 	// Put process into its own process group to ensure clean termination of children
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
