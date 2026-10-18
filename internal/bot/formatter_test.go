@@ -118,3 +118,77 @@ func TestExtractInteractiveButtons(t *testing.T) {
 		t.Errorf("expected no buttons on regular message, got %v", emptyBtns)
 	}
 }
+
+func TestFormatMarkdownTables_Basic(t *testing.T) {
+	input := `Tabel Spesifikasi:
+| Parameter | Nilai |
+| --- | --- |
+| CPU | Celeron N2840 |
+| RAM | 1.8 GiB |`
+
+	output := FormatMarkdownTables(input)
+	if !strings.Contains(output, "• **CPU:** Celeron N2840") {
+		t.Errorf("expected 2-column list row 1, got: %s", output)
+	}
+	if !strings.Contains(output, "• **RAM:** 1.8 GiB") {
+		t.Errorf("expected 2-column list row 2, got: %s", output)
+	}
+}
+
+func TestFormatMarkdownTables_3ColumnsCard(t *testing.T) {
+	input := `| Layanan | Status | Port |
+| :--- | :---: | ---: |
+| NextDNS | Aktif | 53 |
+| MediaMTX | Aktif | 8554 |`
+
+	output := FormatMarkdownTables(input)
+	if !strings.Contains(output, "🔹 **NextDNS**") {
+		t.Errorf("expected card 1 title, got: %s", output)
+	}
+	if !strings.Contains(output, "• **Status:** Aktif") || !strings.Contains(output, "• **Port:** 53") {
+		t.Errorf("expected card 1 attributes, got: %s", output)
+	}
+	if !strings.Contains(output, "🔹 **MediaMTX**") {
+		t.Errorf("expected card 2 title, got: %s", output)
+	}
+}
+
+func TestFormatMarkdownTables_InsideCodeBlock(t *testing.T) {
+	input := "```markdown\n| Kolom1 | Kolom2 |\n| --- | --- |\n| 1 | 2 |\n```"
+	output := FormatMarkdownTables(input)
+
+	if strings.Contains(output, "• **1:**") || strings.Contains(output, "🔹") {
+		t.Errorf("table inside code block should not be converted, got: %s", output)
+	}
+	if output != input {
+		t.Errorf("code block content was modified: %s", output)
+	}
+}
+
+func TestFormatMarkdownTables_UnicodeAndEmojis(t *testing.T) {
+	input := `| Status | Keterangan |
+| :--- | :--- |
+| ✅ Aktif | Berjalan normal |
+| ❌ Mati | Layanan mati |`
+
+	output := FormatMarkdownTables(input)
+	if !strings.Contains(output, "• **✅ Aktif:** Berjalan normal") {
+		t.Errorf("emoji row 1 mismatch: %s", output)
+	}
+	if !strings.Contains(output, "• **❌ Mati:** Layanan mati") {
+		t.Errorf("emoji row 2 mismatch: %s", output)
+	}
+}
+
+func TestMarkdownToTelegramHTML_WithTable(t *testing.T) {
+	input := "Berikut hasil perbandingan:\n\n| Nama | Skor |\n| --- | --- |\n| Alpha | 90 |\n| Beta | 85 |\n\nSelesai."
+	output := MarkdownToTelegramHTML(input)
+
+	if !strings.Contains(output, "• <b>Alpha:</b> 90") || !strings.Contains(output, "• <b>Beta:</b> 85") {
+		t.Errorf("expected bold html tags in converted table list, got: %s", output)
+	}
+	if !strings.Contains(output, "Berikut hasil perbandingan:") || !strings.Contains(output, "Selesai.") {
+		t.Errorf("surrounding text was lost: %s", output)
+	}
+}
+

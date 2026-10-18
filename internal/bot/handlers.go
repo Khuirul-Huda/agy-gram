@@ -25,21 +25,25 @@ func markRestarting(userID int64) {
 	_ = os.WriteFile(restartMarkerFile, []byte(strconv.FormatInt(userID, 10)), 0644)
 }
 
-// CheckAndNotifyRestart checks if agy-gram was restarted and sends a recovery confirmation.
+// CheckAndNotifyRestart checks if agy-gram was restarted and sends a recovery confirmation and any unsent AGY replies.
 func CheckAndNotifyRestart(b *tele.Bot, session domain.SessionManager, cfg *config.Config) {
 	data, err := os.ReadFile(restartMarkerFile)
-	if err != nil {
-		return
+	hasMarker := err == nil
+	if hasMarker {
+		_ = os.Remove(restartMarkerFile)
 	}
-	_ = os.Remove(restartMarkerFile)
 
 	var targetUserID int64
-	userIDStr := strings.TrimSpace(string(data))
-	if id, err := strconv.ParseInt(userIDStr, 10, 64); err == nil && id > 0 {
-		targetUserID = id
-	} else if session != nil && session.GetLastUserID() > 0 {
+	if hasMarker {
+		userIDStr := strings.TrimSpace(string(data))
+		if id, err := strconv.ParseInt(userIDStr, 10, 64); err == nil && id > 0 {
+			targetUserID = id
+		}
+	}
+	if targetUserID == 0 && session != nil && session.GetLastUserID() > 0 {
 		targetUserID = session.GetLastUserID()
-	} else if cfg != nil && len(cfg.AllowedUserIDs) > 0 {
+	}
+	if targetUserID == 0 && cfg != nil && len(cfg.AllowedUserIDs) > 0 {
 		for uid := range cfg.AllowedUserIDs {
 			targetUserID = uid
 			break
@@ -51,22 +55,55 @@ func CheckAndNotifyRestart(b *tele.Bot, session domain.SessionManager, cfg *conf
 	}
 
 	user := &tele.User{ID: targetUserID}
-	msg := "🚀 <b>AGY-Gram berhasil direstart dan sudah kembali online!</b>\nSilakan lanjutkan instruksi Anda."
-	if session != nil {
-		if convID := session.GetConversationID(); convID != "" {
-			msg += fmt.Sprintf("\n\n📌 <b>Sesi Aktif:</b> <code>%s</code> (tersambung kembali)", convID)
+
+	if hasMarker {
+		msg := "🚀 <b>AGY-Gram berhasil direstart dan sudah kembali online!</b>\nSilakan lanjutkan instruksi Anda."
+		if session != nil {
+			if convID := session.GetConversationID(); convID != "" {
+				msg += fmt.Sprintf("\n\n📌 <b>Sesi Aktif:</b> <code>%s</code> (tersambung kembali)", convID)
+			}
+		}
+
+		menu := &tele.ReplyMarkup{}
+		btnMenu := menu.Data("🎮 Panel Kontrol", "main_menu")
+		menu.Inline(menu.Row(btnMenu))
+
+		_, err = b.Send(user, msg, menu, tele.ModeHTML)
+		if err != nil {
+			slog.Warn("Failed to send post-restart notification", "error", err, "user_id", targetUserID)
+		} else {
+			slog.Info("Sent post-restart notification", "user_id", targetUserID)
 		}
 	}
 
-	menu := &tele.ReplyMarkup{}
-	btnMenu := menu.Data("🎮 Panel Kontrol", "main_menu")
-	menu.Inline(menu.Row(btnMenu))
+	// Check if there was an undelivered response from AGY prior to the restart
+	if session != nil {
+		if convID := session.GetConversationID(); convID != "" {
+			lastDelivered := session.GetLastDeliveredStepIndex()
+			if resp, err := agent.GetLatestAssistantResponse(convID); err == nil && resp != nil {
+				if resp.StepIndex > lastDelivered && strings.TrimSpace(resp.Content) != "" {
+					slog.Info("Delivering unsent AGY response after restart", "step_index", resp.StepIndex, "last_delivered", lastDelivered)
 
-	_, err = b.Send(user, msg, menu, tele.ModeHTML)
-	if err != nil {
-		slog.Warn("Failed to send post-restart notification", "error", err, "user_id", targetUserID)
-	} else {
-		slog.Info("Sent post-restart notification", "user_id", targetUserID)
+					header := "📬 <b>Balasan dari AGY (sebelum restart):</b>\n\n"
+					if session.GetLanguage() == "en" {
+						header = "📬 <b>Response from AGY (before restart):</b>\n\n"
+					}
+
+					cleanOutput, _ := ExtractInteractiveButtons(resp.Content)
+					cleanOutput = FormatMarkdownTables(cleanOutput)
+					chunks := SplitMessage(cleanOutput)
+					for i, chunk := range chunks {
+						htmlContent := MarkdownToTelegramHTML(chunk)
+						if i == 0 {
+							htmlContent = header + htmlContent
+						}
+						_, _ = b.Send(user, htmlContent, tele.ModeHTML)
+					}
+
+					session.SetLastDeliveredStepIndex(resp.StepIndex)
+				}
+			}
+		}
 	}
 }
 
@@ -945,6 +982,9 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 	// Extract interactive confirmation/choice buttons from output
 	cleanOutput, buttons := ExtractInteractiveButtons(output)
 
+	// Format markdown tables into monospaced box blocks before chunking
+	cleanOutput = FormatMarkdownTables(cleanOutput)
+
 	// Send output with chunks rendered in Telegram HTML
 	chunks := SplitMessage(cleanOutput)
 	for i, chunk := range chunks {
@@ -985,6 +1025,13 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 				// Fallback to plain text
 				_ = c.Send(chunk, tele.NoPreview)
 			}
+		}
+	}
+
+	// Update last delivered step index from transcript to prevent redundant redelivery
+	if convID := h.session.GetConversationID(); convID != "" {
+		if resp, err := agent.GetLatestAssistantResponse(convID); err == nil && resp != nil {
+			h.session.SetLastDeliveredStepIndex(resp.StepIndex)
 		}
 	}
 

@@ -28,9 +28,10 @@ type SessionState struct {
 	Model           string    `json:"model"`
 	Effort          string    `json:"effort"`
 	Language        string    `json:"language"`
-	ThinkingEnabled bool      `json:"thinking_enabled"`
-	LastUserID      int64     `json:"last_user_id"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ThinkingEnabled        bool      `json:"thinking_enabled"`
+	LastUserID             int64     `json:"last_user_id"`
+	LastDeliveredStepIndex int       `json:"last_delivered_step_index"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 // BoltStore provides lightning-fast embedded key-value storage using bbolt.

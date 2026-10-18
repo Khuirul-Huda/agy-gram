@@ -19,8 +19,9 @@ type Session struct {
 	model           string
 	effort          string
 	language        string
-	thinkingEnabled bool
-	lastUserID      int64
+	thinkingEnabled        bool
+	lastUserID             int64
+	lastDeliveredStepIndex int
 }
 
 // NewSession creates a new Session instance with default mode, model, thinking preference, and optional bbolt store.
@@ -86,6 +87,7 @@ func (s *Session) load() {
 	if state.LastUserID != 0 {
 		s.lastUserID = state.LastUserID
 	}
+	s.lastDeliveredStepIndex = state.LastDeliveredStepIndex
 }
 
 func (s *Session) saveLocked() {
@@ -94,15 +96,16 @@ func (s *Session) saveLocked() {
 	}
 
 	state := storage.SessionState{
-		ConversationID:  s.conversationID,
-		Workspace:       s.workspace,
-		ContinueSession: s.continueSession,
-		Mode:            s.mode,
-		Model:           s.model,
-		Effort:          s.effort,
-		Language:        s.language,
-		ThinkingEnabled: s.thinkingEnabled,
-		LastUserID:      s.lastUserID,
+		ConversationID:         s.conversationID,
+		Workspace:              s.workspace,
+		ContinueSession:        s.continueSession,
+		Mode:                   s.mode,
+		Model:                  s.model,
+		Effort:                 s.effort,
+		Language:               s.language,
+		ThinkingEnabled:        s.thinkingEnabled,
+		LastUserID:             s.lastUserID,
+		LastDeliveredStepIndex: s.lastDeliveredStepIndex,
 	}
 
 	if err := s.store.SaveSession(state); err != nil {
@@ -248,12 +251,28 @@ func (s *Session) SetThinkingEnabled(enabled bool) {
 	s.saveLocked()
 }
 
+// GetLastDeliveredStepIndex returns the latest step index delivered to Telegram.
+func (s *Session) GetLastDeliveredStepIndex() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastDeliveredStepIndex
+}
+
+// SetLastDeliveredStepIndex updates the latest step index delivered to Telegram.
+func (s *Session) SetLastDeliveredStepIndex(stepIndex int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastDeliveredStepIndex = stepIndex
+	s.saveLocked()
+}
+
 // Reset resets the conversation session state to start a fresh conversation.
 func (s *Session) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.conversationID = ""
 	s.continueSession = false
+	s.lastDeliveredStepIndex = 0
 	s.saveLocked()
 }
 

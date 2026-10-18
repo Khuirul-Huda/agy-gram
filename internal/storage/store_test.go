@@ -32,8 +32,9 @@ func TestBoltStore_SaveAndLoad(t *testing.T) {
 		Model:           "gemini-2.5-pro",
 		Effort:          "high",
 		Language:        "id",
-		ThinkingEnabled: true,
-		LastUserID:      987654321,
+		ThinkingEnabled:        true,
+		LastUserID:             987654321,
+		LastDeliveredStepIndex: 123,
 	}
 
 	if err := store.SaveSession(testState); err != nil {
@@ -72,5 +73,8 @@ func TestBoltStore_SaveAndLoad(t *testing.T) {
 	}
 	if loaded.LastUserID != testState.LastUserID {
 		t.Errorf("LastUserID mismatch: got %d, want %d", loaded.LastUserID, testState.LastUserID)
+	}
+	if loaded.LastDeliveredStepIndex != testState.LastDeliveredStepIndex {
+		t.Errorf("LastDeliveredStepIndex mismatch: got %d, want %d", loaded.LastDeliveredStepIndex, testState.LastDeliveredStepIndex)
 	}
 }

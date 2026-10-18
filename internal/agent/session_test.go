@@ -71,12 +71,20 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Errorf("expected language 'en', got '%s'", s.GetLanguage())
 	}
 
+	s.SetLastDeliveredStepIndex(42)
+	if s.GetLastDeliveredStepIndex() != 42 {
+		t.Errorf("expected lastDeliveredStepIndex 42, got %d", s.GetLastDeliveredStepIndex())
+	}
+
 	s.Reset()
 	if s.ShouldContinue() {
 		t.Errorf("expected continueSession to be reset to false")
 	}
 	if s.GetConversationID() != "" {
 		t.Errorf("expected conversationID to be empty after reset")
+	}
+	if s.GetLastDeliveredStepIndex() != 0 {
+		t.Errorf("expected lastDeliveredStepIndex to be reset to 0, got %d", s.GetLastDeliveredStepIndex())
 	}
 }
 
@@ -99,6 +107,7 @@ func TestSessionPersistence(t *testing.T) {
 	s1.SetLanguage("en")
 	s1.SetThinkingEnabled(true)
 	s1.SetLastUserID(999888)
+	s1.SetLastDeliveredStepIndex(77)
 
 	_ = store1.Close()
 
@@ -134,5 +143,8 @@ func TestSessionPersistence(t *testing.T) {
 	}
 	if s2.GetLastUserID() != 999888 {
 		t.Errorf("expected restored lastUserID 999888, got %d", s2.GetLastUserID())
+	}
+	if s2.GetLastDeliveredStepIndex() != 77 {
+		t.Errorf("expected restored lastDeliveredStepIndex 77, got %d", s2.GetLastDeliveredStepIndex())
 	}
 }

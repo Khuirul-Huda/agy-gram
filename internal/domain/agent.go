@@ -70,6 +70,8 @@ type SessionManager interface {
 	SetLanguage(lang string)
 	IsThinkingEnabled() bool
 	SetThinkingEnabled(enabled bool)
+	GetLastDeliveredStepIndex() int
+	SetLastDeliveredStepIndex(stepIndex int)
 	Reset()
 	ListSessions(limit int) ([]SessionRecord, error)
 	SwitchSession(convID string) error
