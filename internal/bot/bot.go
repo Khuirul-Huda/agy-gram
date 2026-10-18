@@ -73,6 +73,7 @@ func (b *Bot) registerBotCommands() {
 		{Text: "sessions", Description: "Pilih / beralih riwayat sesi percakapan"},
 		{Text: "workspace", Description: "Ganti target direktori kerja AGY"},
 		{Text: "status", Description: "Cek hardware & status server"},
+		{Text: "usage", Description: "Cek kuota token & limit model AI"},
 		{Text: "restart", Description: "Restart aman service AGY-Gram"},
 		{Text: "stop", Description: "Hentikan proses yang sedang berjalan"},
 	}
@@ -145,6 +146,7 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle("/help", b.handler.HandleHelp)
 	b.teleBot.Handle("/new", b.handler.HandleNew)
 	b.teleBot.Handle("/status", b.handler.HandleStatus)
+	b.teleBot.Handle("/usage", b.handler.HandleUsage)
 	b.teleBot.Handle("/mode", b.handler.HandleMode)
 	b.teleBot.Handle("/model", b.handler.HandleModel)
 	b.teleBot.Handle("/effort", b.handler.HandleEffort)
@@ -178,6 +180,7 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle(&tele.Btn{Unique: "lang_menu"}, b.handler.HandleLang)
 	b.teleBot.Handle(&tele.Btn{Unique: "lang_set"}, b.handler.HandleSetLangCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "cmd_status"}, b.handler.HandleStatusCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "cmd_usage"}, b.handler.HandleUsageCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "cmd_new"}, b.handler.HandleNewCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "cmd_restart"}, b.handler.HandleRestart)
 	b.teleBot.Handle(&tele.Btn{Unique: "cmd_stop"}, b.handler.HandleStopCallback)

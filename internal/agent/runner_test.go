@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,5 +68,66 @@ func TestReadToolCallFromLog(t *testing.T) {
 	replacementContent := getToolArgString(args, "ReplacementContent")
 	if replacementContent != "newCode()" {
 		t.Errorf("expected 'newCode()', got '%s'", replacementContent)
+	}
+}
+
+func TestParseQuotaJSON(t *testing.T) {
+	sampleJSON := `{
+		"conversation_id":"",
+		"status":"SUCCESS",
+		"command":{
+			"name":"usage",
+			"data":{
+				"description":"Quota description test",
+				"groups":[
+					{
+						"name":"Gemini Models",
+						"description":"Gemini models group",
+						"buckets":[
+							{
+								"id":"gemini-weekly",
+								"name":"Weekly Limit Remaining",
+								"description":"Weekly bucket",
+								"window":"weekly",
+								"remaining_fraction":0.95,
+								"reset_time":"2026-10-24T03:51:51Z"
+							}
+						]
+					}
+				]
+			}
+		}
+	}`
+
+	var raw struct {
+		Command *struct {
+			Data *struct {
+				Description string `json:"description"`
+				Groups      []struct {
+					Name    string `json:"name"`
+					Buckets []struct {
+						ID                string  `json:"id"`
+						Name              string  `json:"name"`
+						RemainingFraction float64 `json:"remaining_fraction"`
+					} `json:"buckets"`
+				} `json:"groups"`
+			} `json:"data"`
+		} `json:"command"`
+	}
+
+	if err := json.Unmarshal([]byte(sampleJSON), &raw); err != nil {
+		t.Fatalf("failed to unmarshal test JSON: %v", err)
+	}
+
+	if raw.Command == nil || len(raw.Command.Data.Groups) != 1 {
+		t.Fatalf("unexpected parsed groups count")
+	}
+
+	group := raw.Command.Data.Groups[0]
+	if group.Name != "Gemini Models" {
+		t.Errorf("expected 'Gemini Models', got '%s'", group.Name)
+	}
+	if group.Buckets[0].RemainingFraction != 0.95 {
+		t.Errorf("expected 0.95, got %v", group.Buckets[0].RemainingFraction)
 	}
 }

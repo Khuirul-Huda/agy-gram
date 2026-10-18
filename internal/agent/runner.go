@@ -404,6 +404,92 @@ func (r *Runner) cleanupProcess() {
 	r.cancelFn = nil
 }
 
+// GetUsage executes /usage command against agy CLI with json output and parses quota information.
+func (r *Runner) GetUsage(ctx context.Context) (*domain.QuotaInfo, error) {
+	// agy -p "/usage" --output-format json
+	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, r.binPath, "-p", "/usage", "--output-format", "json")
+	cmd.Dir = r.workingDir
+
+	var cleanEnv []string
+	for _, env := range os.Environ() {
+		upper := strings.ToUpper(env)
+		if strings.HasPrefix(upper, "HTTP_PROXY=") ||
+			strings.HasPrefix(upper, "HTTPS_PROXY=") ||
+			strings.HasPrefix(upper, "ALL_PROXY=") ||
+			strings.HasPrefix(upper, "TELEGRAM_PROXY=") {
+			continue
+		}
+		cleanEnv = append(cleanEnv, env)
+	}
+	cmd.Env = cleanEnv
+
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run agy /usage: %w", err)
+	}
+
+	var raw struct {
+		Status  string `json:"status"`
+		Command *struct {
+			Name string `json:"name"`
+			Data *struct {
+				Description string `json:"description"`
+				Groups      []struct {
+					Name        string `json:"name"`
+					Description string `json:"description"`
+					Buckets     []struct {
+						ID                string  `json:"id"`
+						Name              string  `json:"name"`
+						Description       string  `json:"description"`
+						Window            string  `json:"window"`
+						RemainingFraction float64 `json:"remaining_fraction"`
+						ResetTime         string  `json:"reset_time"`
+					} `json:"buckets"`
+				} `json:"groups"`
+			} `json:"data"`
+		} `json:"command"`
+	}
+
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse /usage json output: %w", err)
+	}
+
+	if raw.Command == nil || raw.Command.Data == nil {
+		return nil, errors.New("usage command data not found in agy output")
+	}
+
+	info := &domain.QuotaInfo{
+		Description: raw.Command.Data.Description,
+	}
+
+	for _, g := range raw.Command.Data.Groups {
+		group := domain.UsageGroup{
+			Name:        g.Name,
+			Description: g.Description,
+		}
+		for _, b := range g.Buckets {
+			var resetT time.Time
+			if b.ResetTime != "" {
+				resetT, _ = time.Parse(time.RFC3339, b.ResetTime)
+			}
+			group.Buckets = append(group.Buckets, domain.UsageBucket{
+				ID:                b.ID,
+				Name:              b.Name,
+				Description:       b.Description,
+				Window:            b.Window,
+				RemainingFraction: b.RemainingFraction,
+				ResetTime:         resetT,
+			})
+		}
+		info.Groups = append(info.Groups, group)
+	}
+
+	return info, nil
+}
+
 // pollNewThinking parses new thinking blocks from transcript that haven't been emitted yet.
 func pollNewThinking(convID string, seenSteps map[int]bool) []string {
 	if convID == "" {

@@ -216,6 +216,7 @@ func (h *Handler) buildMainMenu() (string, *tele.ReplyMarkup) {
 	btnSessions := menu.Data("📂 Riwayat Sesi", "cmd_sessions")
 	btnWorkspace := menu.Data("📁 Workspace", "cmd_workspace")
 	btnStatus := menu.Data("📊 Status Server", "cmd_status")
+	btnUsage := menu.Data("📈 Quota / Usage", "cmd_usage")
 	btnNewSession := menu.Data("🧹 Reset Sesi", "cmd_new")
 	btnRestart := menu.Data("♻️ Restart Bot", "cmd_restart")
 	btnStop := menu.Data("🛑 Stop Agent", "cmd_stop")
@@ -224,8 +225,9 @@ func (h *Handler) buildMainMenu() (string, *tele.ReplyMarkup) {
 		menu.Row(btnModel, btnEffort),
 		menu.Row(btnMode, btnThinking),
 		menu.Row(btnSessions, btnWorkspace),
-		menu.Row(btnStatus, btnNewSession),
-		menu.Row(btnRestart, btnStop),
+		menu.Row(btnStatus, btnUsage),
+		menu.Row(btnNewSession, btnRestart),
+		menu.Row(btnStop),
 	)
 
 	return text, menu
@@ -430,10 +432,120 @@ func (h *Handler) HandleStatus(c tele.Context) error {
 
 	menu := &tele.ReplyMarkup{}
 	btnRefresh := menu.Data("🔄 Refresh", "cmd_status")
+	btnUsage := menu.Data("📈 Quota / Usage", "cmd_usage")
+	btnMenu := menu.Data("🎮 Panel Kontrol", "main_menu")
+	menu.Inline(menu.Row(btnRefresh, btnUsage), menu.Row(btnMenu))
+
+	return c.Send(msg, menu, tele.ModeHTML)
+}
+
+// HandleUsage fetches and renders Antigravity quota and usage limits.
+func (h *Handler) HandleUsage(c tele.Context) error {
+	msg, menu, err := h.buildUsageView()
+	if err != nil {
+		return c.Send(fmt.Sprintf("❌ Gagal mengambil status usage: %v", err))
+	}
+	return c.Send(msg, menu, tele.ModeHTML)
+}
+
+// HandleUsageCallback handles the inline callback for refreshing / viewing quota usage.
+func (h *Handler) HandleUsageCallback(c tele.Context) error {
+	_ = c.Respond()
+	msg, menu, err := h.buildUsageView()
+	if err != nil {
+		return c.Send(fmt.Sprintf("❌ Gagal mengambil status usage: %v", err))
+	}
+	return safeEdit(c, msg, menu, tele.ModeHTML)
+}
+
+func (h *Handler) buildUsageView() (string, *tele.ReplyMarkup, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	quota, err := h.runner.GetUsage(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+
+	renderBar := func(fraction float64) string {
+		totalBlocks := 10
+		filled := int(fraction*float64(totalBlocks) + 0.5)
+		if filled > totalBlocks {
+			filled = totalBlocks
+		}
+		if filled < 0 {
+			filled = 0
+		}
+		empty := totalBlocks - filled
+
+		var bar strings.Builder
+		for i := 0; i < filled; i++ {
+			if fraction < 0.20 {
+				bar.WriteString("🟥")
+			} else if fraction < 0.50 {
+				bar.WriteString("🟨")
+			} else {
+				bar.WriteString("🟩")
+			}
+		}
+		for i := 0; i < empty; i++ {
+			bar.WriteString("⬜")
+		}
+		return bar.String()
+	}
+
+	wibLoc := time.FixedZone("WIB", 7*3600)
+
+	var sb strings.Builder
+	sb.WriteString("📈 <b>Antigravity Quota & Rate Limits</b>\n\n")
+
+	for _, g := range quota.Groups {
+		sb.WriteString(fmt.Sprintf("🔹 <b>%s</b>\n", html.EscapeString(g.Name)))
+		if g.Description != "" {
+			sb.WriteString(fmt.Sprintf("<i>%s</i>\n", html.EscapeString(g.Description)))
+		}
+
+		for _, b := range g.Buckets {
+			pct := int(b.RemainingFraction*100 + 0.5)
+			bar := renderBar(b.RemainingFraction)
+
+			resetStr := "-"
+			if !b.ResetTime.IsZero() {
+				localReset := b.ResetTime.In(wibLoc)
+				resetStr = localReset.Format("02 Jan 15:04 WIB")
+				// Hitung sisa waktu
+				dur := time.Until(b.ResetTime)
+				if dur > 0 {
+					hours := int(dur.Hours())
+					mins := int(dur.Minutes()) % 60
+					if hours > 24 {
+						days := hours / 24
+						hours = hours % 24
+						resetStr += fmt.Sprintf(" (dalam %dh %dj)", days, hours)
+					} else if hours > 0 {
+						resetStr += fmt.Sprintf(" (dalam %dj %dm)", hours, mins)
+					} else {
+						resetStr += fmt.Sprintf(" (dalam %dm)", mins)
+					}
+				}
+			}
+
+			sb.WriteString(fmt.Sprintf("• <b>%s:</b> <code>%d%%</code>\n  %s\n  ⏳ Reset: <code>%s</code>\n",
+				html.EscapeString(b.Name),
+				pct,
+				bar,
+				html.EscapeString(resetStr),
+			))
+		}
+		sb.WriteString("\n")
+	}
+
+	menu := &tele.ReplyMarkup{}
+	btnRefresh := menu.Data("🔄 Refresh", "cmd_usage")
 	btnMenu := menu.Data("🎮 Panel Kontrol", "main_menu")
 	menu.Inline(menu.Row(btnRefresh, btnMenu))
 
-	return c.Send(msg, menu, tele.ModeHTML)
+	return strings.TrimRight(sb.String(), "\n"), menu, nil
 }
 
 // HandleMode displays interactive mode buttons or updates the agent execution mode.

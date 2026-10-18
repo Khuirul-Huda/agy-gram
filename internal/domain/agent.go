@@ -43,9 +43,33 @@ type SessionRecord struct {
 	UpdatedAt       time.Time
 }
 
+// UsageBucket represents an individual quota limit window (e.g. 5-hour or weekly).
+type UsageBucket struct {
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	Description       string    `json:"description"`
+	Window            string    `json:"window"`
+	RemainingFraction float64   `json:"remaining_fraction"`
+	ResetTime         time.Time `json:"reset_time"`
+}
+
+// UsageGroup represents a group of models sharing a quota bucket (e.g. Gemini, Claude & GPT).
+type UsageGroup struct {
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Buckets     []UsageBucket `json:"buckets"`
+}
+
+// QuotaInfo represents the parsed quota and rate limit status from agy.
+type QuotaInfo struct {
+	Description string       `json:"description"`
+	Groups      []UsageGroup `json:"groups"`
+}
+
 // AgentRunner executes Antigravity CLI commands.
 type AgentRunner interface {
 	Execute(ctx context.Context, opts PromptOptions) (string, error)
+	GetUsage(ctx context.Context) (*QuotaInfo, error)
 	CancelCurrent() bool
 	IsRunning() bool
 }

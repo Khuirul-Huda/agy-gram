@@ -123,6 +123,7 @@ func msgHelp(lang string) string {
 4. <b>Runtime Settings:</b>
    • <code>/model</code> : Choose AI model.
    • <code>/effort</code> : Adjust reasoning effort.
+   • <code>/usage</code> : Check quota and rate limits.
    • <code>/lang</code> : Toggle English / Indonesian.
    • <code>/status</code> : System resources and agent metrics.`
 	}
@@ -143,6 +144,7 @@ func msgHelp(lang string) string {
 4. <b>Konfigurasi Runtime:</b>
    • <code>/model</code> : Pilih model AI.
    • <code>/effort</code> : Atur reasoning effort.
+   • <code>/usage</code> : Cek kuota token & limit model AI.
    • <code>/lang</code> : Ganti Bahasa Indonesia / English.
    • <code>/status</code> : Cek RAM, ZRAM, SSD, dan status server.`
 }
