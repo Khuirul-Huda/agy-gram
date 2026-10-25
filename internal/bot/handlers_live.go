@@ -12,11 +12,11 @@ import (
 )
 
 const (
-	liveThrottleInterval = 1500 * time.Millisecond
+	liveThrottleInterval = 1200 * time.Millisecond
 	maxLiveThinkingLen   = 350
 )
 
-// liveTracker manages in-place live progress and thinking updates on a single Telegram message.
+// liveTracker manages in-place live progress, real-time delta streaming, and thinking updates on a single Telegram message.
 type liveTracker struct {
 	bot          *tele.Bot
 	recipient    tele.Recipient
@@ -28,6 +28,7 @@ type liveTracker struct {
 
 	lastActivity string
 	lastThinking string
+	streamBuf    strings.Builder
 }
 
 func newLiveTracker(b *tele.Bot, recipient tele.Recipient, initialMsg *tele.Message, lang string) *liveTracker {
@@ -93,6 +94,18 @@ func (t *liveTracker) RecordThinking(thinking string) {
 	t.maybeRenderLocked()
 }
 
+// RecordDelta appends streamed response text and triggers real-time in-place editing.
+func (t *liveTracker) RecordDelta(delta string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if delta == "" {
+		return
+	}
+	t.streamBuf.WriteString(delta)
+	t.maybeRenderLocked()
+}
+
 // maybeRenderLocked edits the message in place if throttle interval has elapsed.
 func (t *liveTracker) maybeRenderLocked() {
 	if t.msg == nil || t.bot == nil {
@@ -112,6 +125,20 @@ func (t *liveTracker) maybeRenderLocked() {
 }
 
 func (t *liveTracker) buildProgressHTML() string {
+	// If the agent has started emitting response text deltas, render the response stream live!
+	if t.streamBuf.Len() > 0 {
+		currentStream := t.streamBuf.String()
+		if len(currentStream) > 3500 {
+			currentStream = currentStream[:3500] + "\n...(streaming)..."
+		}
+		// Balance unclosed code blocks if currently mid-stream
+		if strings.Count(currentStream, "```")%2 != 0 {
+			currentStream += "\n```"
+		}
+		htmlText := MarkdownToTelegramHTML(currentStream)
+		return htmlText + " ▍"
+	}
+
 	elapsed := int(time.Since(t.startTime).Seconds())
 	title := "Antigravity sedang bekerja"
 	actLabel := "Aktivitas"

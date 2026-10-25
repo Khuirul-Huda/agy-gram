@@ -948,7 +948,35 @@ func (h *Handler) HandlePrompt(c tele.Context) error {
 	if prompt == "" {
 		return nil
 	}
+
+	// Live Steering by default: if an execution is active, steer it dynamically
+	if h.runner.IsRunning() {
+		return h.handleSteer(c, prompt)
+	}
+
 	return h.executePrompt(c, prompt)
+}
+
+func (h *Handler) handleSteer(c tele.Context, prompt string) error {
+	session := h.getSession(c)
+	lang := session.GetLanguage()
+
+	steerNotice := fmt.Sprintf("↪️ <b>Mengarahkan Ulang (Steering)...</b>\nMenghentikan langkah saat ini dan mengarahkan ke instruksi baru:\n<i>\"%s\"</i>", html.EscapeString(prompt))
+	if lang == "en" {
+		steerNotice = fmt.Sprintf("↪️ <b>Live Steering...</b>\nInterrupting active step and redirecting to new directive:\n<i>\"%s\"</i>", html.EscapeString(prompt))
+	}
+	_ = c.Send(steerNotice, tele.ModeHTML)
+
+	// Cleanly abort the active process
+	h.runner.CancelCurrent()
+
+	// Wait briefly for previous process group to teardown cleanly
+	for i := 0; i < 10 && h.runner.IsRunning(); i++ {
+		time.Sleep(150 * time.Millisecond)
+	}
+
+	steeredPrompt := fmt.Sprintf("[ARAHAN BARU / STEER]: %s", prompt)
+	return h.executePrompt(c, steeredPrompt)
 }
 
 // HandleUserChoiceCallback handles clicks on dynamically generated confirmation/choice buttons.
@@ -1065,6 +1093,9 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 		OnThinking: func(thinking string) {
 			tracker.RecordThinking(thinking)
 		},
+		OnTextDelta: func(delta string) {
+			tracker.RecordDelta(delta)
+		},
 	}
 
 	startTime := time.Now()
@@ -1090,6 +1121,12 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 	cleanOutput = fmt.Sprintf("%s\n\n%s", cleanOutput, msgElapsedFooter(lang, elapsed))
 
 	menu := h.buildChoiceMenu(buttons)
+
+	// Interactive Plan Approval: detect plan proposals and append execution/revision buttons
+	if isPlanResponse(session.GetMode(), output) {
+		menu = h.attachPlanApprovalButtons(menu, lang)
+	}
+
 	_ = tracker.OverwriteFinal(c, cleanOutput, menu)
 
 	// Update last delivered step index from transcript to prevent redundant redelivery

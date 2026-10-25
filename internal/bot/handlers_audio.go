@@ -41,6 +41,9 @@ func (h *Handler) HandleVoice(c tele.Context) error {
 	prompt := formatAudioPrompt(caption, destPath)
 
 	_ = c.Send(fmt.Sprintf("🎙️ Voice note diterima & disimpan di <code>%s</code>. Memproses...", destPath), tele.ModeHTML)
+	if h.runner.IsRunning() {
+		return h.handleSteer(c, prompt)
+	}
 	return h.executePrompt(c, prompt)
 }
 
@@ -69,6 +72,9 @@ func (h *Handler) HandleAudio(c tele.Context) error {
 	prompt := formatAudioPrompt(caption, destPath)
 
 	_ = c.Send(fmt.Sprintf("🎵 Audio diterima & disimpan di <code>%s</code>. Memproses...", destPath), tele.ModeHTML)
+	if h.runner.IsRunning() {
+		return h.handleSteer(c, prompt)
+	}
 	return h.executePrompt(c, prompt)
 }
 

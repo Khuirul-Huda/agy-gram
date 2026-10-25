@@ -190,6 +190,8 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle(&tele.Btn{Unique: "ws_set"}, b.handler.HandleWorkspaceCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "file_download"}, b.handler.HandleFileDownloadCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "user_choice"}, b.handler.HandleUserChoiceCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "plan_approve"}, b.handler.HandlePlanApproveCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "plan_revise"}, b.handler.HandlePlanReviseCallback)
 
 	// Plain text messages routed as agent prompts
 	b.teleBot.Handle(tele.OnText, b.handler.HandlePrompt)
