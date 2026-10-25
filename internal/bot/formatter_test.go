@@ -89,7 +89,7 @@ func TestMarkdownToTelegramHTML_LinksAndHeaders(t *testing.T) {
 }
 
 func TestMarkdownToTelegramHTML_ItalicsAndQuotes(t *testing.T) {
-	input := "*italic star* and _italic under_\n> This is a quote.\nAlso variable_name_test should remain intact."
+	input := "*italic star* and _italic under_\n> This is a quote.\nAlso variable_name_test should remain intact.\nFooter: ⏱️ <i>(Selesai dalam 2s)</i>"
 	output := MarkdownToTelegramHTML(input)
 
 	if !strings.Contains(output, "<i>italic star</i>") {
@@ -103,6 +103,12 @@ func TestMarkdownToTelegramHTML_ItalicsAndQuotes(t *testing.T) {
 	}
 	if strings.Contains(output, "variable<i>name</i>test") {
 		t.Errorf("snake_case incorrectly converted to italic: %s", output)
+	}
+	if !strings.Contains(output, "⏱️ <i>(Selesai dalam 2s)</i>") {
+		t.Errorf("raw html <i> tag was incorrectly escaped: %s", output)
+	}
+	if strings.Contains(output, "&lt;i&gt;") {
+		t.Errorf("found escaped &lt;i&gt; in output: %s", output)
 	}
 }
 

@@ -183,7 +183,23 @@ func MarkdownToTelegramHTML(input string) string {
 	// Web links ([title](url) -> <a href="url">title</a>)
 	processed = linkRegex.ReplaceAllString(processed, `<a href="$2">$1</a>`)
 
-	// 10. Restore inline code blocks
+	// 10. Restore standard safe Telegram HTML tags
+	safeTagsReplacer := strings.NewReplacer(
+		"&lt;i&gt;", "<i>",
+		"&lt;/i&gt;", "</i>",
+		"&lt;b&gt;", "<b>",
+		"&lt;/b&gt;", "</b>",
+		"&lt;s&gt;", "<s>",
+		"&lt;/s&gt;", "</s>",
+		"&lt;u&gt;", "<u>",
+		"&lt;/u&gt;", "</u>",
+		"&lt;blockquote&gt;", "<blockquote>",
+		"&lt;/blockquote&gt;", "</blockquote>",
+		"&lt;blockquote expandable&gt;", "<blockquote expandable>",
+	)
+	processed = safeTagsReplacer.Replace(processed)
+
+	// 11. Restore inline code blocks
 	for i, ic := range inlineCodes {
 		placeholder := html.EscapeString(fmt.Sprintf(inlinePlaceholder, i))
 		processed = strings.ReplaceAll(processed, placeholder, ic)
