@@ -35,12 +35,12 @@ func msgFileEditHeader(lang, toolName, targetFile, diff string) string {
 	escapedDiff := html.EscapeString(diff)
 
 	title := "Mengedit File:"
-	if toolName == "write_to_file" {
+	if toolName == "write_to_file" || toolName == "write_file" {
 		title = "Menulis File:"
 	}
 	if lang == "en" {
 		title = "Editing File:"
-		if toolName == "write_to_file" {
+		if toolName == "write_to_file" || toolName == "write_file" {
 			title = "Writing File:"
 		}
 	}

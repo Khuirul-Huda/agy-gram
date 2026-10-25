@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Khuirul-Huda/agy-gram/internal/domain"
 	tele "gopkg.in/telebot.v3"
 )
 
@@ -107,39 +108,45 @@ func (h *Handler) buildSessionsMenu(page int) (string, *tele.ReplyMarkup) {
 
 // HandleWorkspace displays available workspaces or updates current workspace.
 func (h *Handler) HandleWorkspace(c tele.Context) error {
+	s := h.getSession(c)
 	args := strings.TrimSpace(c.Message().Payload)
 	if args != "" {
-		h.session.SetWorkspace(args)
+		s.SetWorkspace(args)
 		return c.Send(fmt.Sprintf("📁 Workspace disetel ke: <code>%s</code>", args), tele.ModeHTML)
 	}
 
-	text, menu := h.buildWorkspaceMenu()
+	text, menu := h.buildWorkspaceMenuFor(s)
 	return c.Send(text, menu, tele.ModeHTML)
 }
 
 // HandleWorkspaceCallback handles interactive workspace switching.
 func (h *Handler) HandleWorkspaceCallback(c tele.Context) error {
 	_ = c.Respond()
+	s := h.getSession(c)
 	cb := c.Callback()
 	if cb != nil && cb.Data != "" {
 		switch cb.Data {
 		case "ws_home":
-			h.session.SetWorkspace("/home/huda")
+			s.SetWorkspace("/home/huda")
 		case "ws_agy":
-			h.session.SetWorkspace("/home/huda/repo/agy-gram")
+			s.SetWorkspace("/home/huda/repo/agy-gram")
 		case "ws_mocci":
-			h.session.SetWorkspace("/home/huda/repo/Mocci")
+			s.SetWorkspace("/home/huda/repo/Mocci")
 		case "ws_cctv":
-			h.session.SetWorkspace("/home/huda/cctv_recordings")
+			s.SetWorkspace("/home/huda/cctv_recordings")
 		}
 	}
 
-	text, menu := h.buildWorkspaceMenu()
+	text, menu := h.buildWorkspaceMenuFor(s)
 	return safeEdit(c, text, menu, tele.ModeHTML)
 }
 
 func (h *Handler) buildWorkspaceMenu() (string, *tele.ReplyMarkup) {
-	currentWs := h.session.GetWorkspace()
+	return h.buildWorkspaceMenuFor(h.session)
+}
+
+func (h *Handler) buildWorkspaceMenuFor(s domain.SessionManager) (string, *tele.ReplyMarkup) {
+	currentWs := s.GetWorkspace()
 	if currentWs == "" {
 		currentWs = "/home/huda"
 	}

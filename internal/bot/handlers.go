@@ -975,11 +975,50 @@ func (h *Handler) HandleUserChoiceCallback(c tele.Context) error {
 	return nil
 }
 
+func (h *Handler) getSession(c tele.Context) domain.SessionManager {
+	if c == nil || c.Chat() == nil {
+		return h.session
+	}
+	threadID := 0
+	if c.Message() != nil {
+		threadID = c.Message().ThreadID
+	}
+	if c.Callback() != nil && c.Callback().Message != nil {
+		threadID = c.Callback().Message.ThreadID
+	}
+	return h.session.ForTopic(c.Chat().ID, threadID)
+}
+
+func (h *Handler) buildChoiceMenu(buttons []string) *tele.ReplyMarkup {
+	if len(buttons) == 0 {
+		return nil
+	}
+	menu := &tele.ReplyMarkup{}
+	var rows []tele.Row
+	var rowBtns []tele.Btn
+	for idx, btnText := range buttons {
+		choiceID := fmt.Sprintf("ch_%d_%d", time.Now().UnixNano()%10000000, idx)
+		h.choiceCache.Store(choiceID, btnText)
+		btn := menu.Data(btnText, "user_choice", choiceID)
+		rowBtns = append(rowBtns, btn)
+		if len(rowBtns) == 2 {
+			rows = append(rows, menu.Row(rowBtns...))
+			rowBtns = nil
+		}
+	}
+	if len(rowBtns) > 0 {
+		rows = append(rows, menu.Row(rowBtns...))
+	}
+	menu.Inline(rows...)
+	return menu
+}
+
 func (h *Handler) executePrompt(c tele.Context, prompt string) error {
-	lang := h.session.GetLanguage()
+	session := h.getSession(c)
+	lang := session.GetLanguage()
 	sender := c.Sender()
 	if sender != nil {
-		h.session.SetLastUserID(sender.ID)
+		session.SetLastUserID(sender.ID)
 	}
 
 	if h.runner.IsRunning() {
@@ -989,31 +1028,29 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 		return c.Send("⚠️ Agent sedang memproses permintaan sebelumnya. Gunakan /stop jika ingin membatalkannya.")
 	}
 
-	// 1. Fast ACK: Send immediate reply to acknowledge receipt and prevent client timeout
-	ackMsg, ackErr := c.Bot().Send(c.Recipient(), msgFastAck(lang), tele.ModeHTML)
+	// 1. Fast ACK: Send immediate reply to acknowledge receipt
+	ackMsg, _ := c.Bot().Send(c.Recipient(), msgFastAck(lang), tele.ModeHTML)
+	tracker := newLiveTracker(c.Bot(), c.Recipient(), ackMsg, lang)
 
 	// 2. Start continuous periodic typing indicator ticker
 	stopTyping := make(chan struct{})
 	go h.startTypingTicker(c, stopTyping)
 	defer close(stopTyping)
 
-	var (
-		streamBuf    strings.Builder
-		streamMu     sync.Mutex
-		lastEditTime time.Time
-	)
-
 	opts := domain.PromptOptions{
 		Prompt:          prompt,
-		ContinueSession: h.session.ShouldContinue(),
-		ConversationID:  h.session.GetConversationID(),
-		Workspace:       h.session.GetWorkspace(),
-		Mode:            h.session.GetMode(),
-		Model:           h.session.GetModel(),
-		Effort:          h.session.GetEffort(),
-		VerboseThinking: h.session.IsThinkingEnabled(),
+		ContinueSession: session.ShouldContinue(),
+		ConversationID:  session.GetConversationID(),
+		Workspace:       session.GetWorkspace(),
+		Mode:            session.GetMode(),
+		Model:           session.GetModel(),
+		Effort:          session.GetEffort(),
+		VerboseThinking: session.IsThinkingEnabled(),
 		OnConversation: func(convID string) {
-			h.session.SetConversationID(convID)
+			session.SetConversationID(convID)
+		},
+		OnToolEvent: func(event domain.ToolEvent) {
+			tracker.RecordTool(event)
 		},
 		OnCommand: func(cmd string) {
 			isRisky, pattern := agent.IsCommandRisky(cmd)
@@ -1021,47 +1058,12 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 				warnMsg := fmt.Sprintf("⚠️ <b>PERINGATAN OPERASI BERISIKO TINGGI:</b>\nPerintah terdeteksi berbahaya (pattern: <code>%s</code>):\n<pre><code class=\"language-bash\">%s</code></pre>", html.EscapeString(pattern), html.EscapeString(cmd))
 				_ = c.Send(warnMsg, tele.ModeHTML)
 			}
-			msg := msgCommandHeader(lang, cmd)
-			if err := c.Send(msg, tele.ModeHTML); err != nil {
-				_ = c.Send(fmt.Sprintf("⚙️ Menjalankan Perintah:\n%s", cmd))
-			}
 		},
 		OnFileEdit: func(toolName, targetFile, diff string) {
-			msg := msgFileEditHeader(lang, toolName, targetFile, diff)
-			menu := &tele.ReplyMarkup{}
-			btnDownload := menu.Data("📥 Unduh File", "file_download", targetFile)
-			menu.Inline(menu.Row(btnDownload))
-
-			if err := c.Send(msg, menu, tele.ModeHTML); err != nil {
-				_ = c.Send(fmt.Sprintf("📝 %s: %s\n%s", toolName, targetFile, diff), menu)
-			}
+			// Tracked live via OnToolEvent
 		},
 		OnThinking: func(thinking string) {
-			chunks := SplitMessage(thinking)
-			for _, chunk := range chunks {
-				msg := msgThinkingHeader(lang, chunk)
-				if err := c.Send(msg, tele.ModeHTML); err != nil {
-					_ = c.Send("🧠 Thinking Process:\n" + chunk)
-				}
-			}
-		},
-		OnTextDelta: func(delta string) {
-			// Throttle live message editing to avoid Telegram rate limits
-			streamMu.Lock()
-			streamBuf.WriteString(delta)
-			now := time.Now()
-			if ackMsg != nil && now.Sub(lastEditTime) >= 1500*time.Millisecond && streamBuf.Len() > 0 {
-				lastEditTime = now
-				currentText := streamBuf.String()
-				streamMu.Unlock()
-				if len(currentText) > 3500 {
-					currentText = currentText[:3500] + "\n...(streaming)..."
-				}
-				html := MarkdownToTelegramHTML(currentText)
-				_ = safeEdit(c, html, tele.ModeHTML)
-				return
-			}
-			streamMu.Unlock()
+			tracker.RecordThinking(thinking)
 		},
 	}
 
@@ -1069,81 +1071,31 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 	output, err := h.runner.Execute(context.Background(), opts)
 	elapsed := time.Since(startTime).Round(time.Millisecond)
 
-	// Clean up initial acknowledgment placeholder message
-	if ackErr == nil && ackMsg != nil {
-		_ = c.Bot().Delete(ackMsg)
-	}
-
 	if err != nil {
 		if errors.Is(err, domain.ErrExecutionCancelled) {
+			cancelMsg := "🛑 Permintaan dibatalkan."
 			if lang == "en" {
-				return c.Send("🛑 Request cancelled.")
+				cancelMsg = "🛑 Request cancelled."
 			}
-			return c.Send("🛑 Permintaan dibatalkan.")
+			return tracker.OverwriteError(c, cancelMsg)
 		}
-		errTitle := "Error saat menjalankan agent:"
-		if lang == "en" {
-			errTitle = "Error executing agent:"
-		}
-		return c.Send(fmt.Sprintf("❌ <b>%s</b>\n<pre><code>%s</code></pre>", errTitle, html.EscapeString(err.Error())), tele.ModeHTML)
+		return tracker.OverwriteError(c, err.Error())
 	}
 
 	// Mark session as continuous after successful turn
-	h.session.SetContinue(true)
+	session.SetContinue(true)
 
 	// Extract interactive confirmation/choice buttons from output
 	cleanOutput, buttons := ExtractInteractiveButtons(output)
+	cleanOutput = fmt.Sprintf("%s\n\n%s", cleanOutput, msgElapsedFooter(lang, elapsed))
 
-	// Format markdown tables into monospaced box blocks before chunking
-	cleanOutput = FormatMarkdownTables(cleanOutput)
-
-	// Send output with chunks rendered in Telegram HTML
-	chunks := SplitMessage(cleanOutput)
-	for i, chunk := range chunks {
-		htmlContent := MarkdownToTelegramHTML(chunk)
-		if i == len(chunks)-1 {
-			// Append elapsed time footer on the last chunk AFTER html conversion (prevents <i> escaping bug)
-			htmlContent = fmt.Sprintf("%s\n\n%s", htmlContent, msgElapsedFooter(lang, elapsed))
-
-			if len(buttons) > 0 {
-				menu := &tele.ReplyMarkup{}
-				var rows []tele.Row
-				var rowBtns []tele.Btn
-				for idx, btnText := range buttons {
-					choiceID := fmt.Sprintf("ch_%d_%d", time.Now().UnixNano()%10000000, idx)
-					h.choiceCache.Store(choiceID, btnText)
-					btn := menu.Data(btnText, "user_choice", choiceID)
-					rowBtns = append(rowBtns, btn)
-					if len(rowBtns) == 2 {
-						rows = append(rows, menu.Row(rowBtns...))
-						rowBtns = nil
-					}
-				}
-				if len(rowBtns) > 0 {
-					rows = append(rows, menu.Row(rowBtns...))
-				}
-				menu.Inline(rows...)
-
-				if err := c.Send(htmlContent, menu, tele.ModeHTML); err != nil {
-					_ = c.Send(chunk, menu, tele.NoPreview)
-				}
-				continue
-			}
-		}
-
-		if err := c.Send(htmlContent, tele.ModeHTML); err != nil {
-			// Fallback to legacy markdown if HTML parser encounters an issue
-			if errMd := c.Send(chunk, tele.ModeMarkdown); errMd != nil {
-				// Fallback to plain text
-				_ = c.Send(chunk, tele.NoPreview)
-			}
-		}
-	}
+	menu := h.buildChoiceMenu(buttons)
+	_ = tracker.OverwriteFinal(c, cleanOutput, menu)
 
 	// Update last delivered step index from transcript to prevent redundant redelivery
-	if convID := h.session.GetConversationID(); convID != "" {
+	if convID := session.GetConversationID(); convID != "" {
 		if resp, err := agent.GetLatestAssistantResponse(convID); err == nil && resp != nil {
-			h.session.SetLastDeliveredStepIndex(resp.StepIndex)
+			session.SetLastDeliveredStepIndex(resp.StepIndex)
 		}
 	}
 

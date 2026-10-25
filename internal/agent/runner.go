@@ -191,99 +191,11 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 				}
 			}
 
-			// 2. Capture tool executions (run_command, replace_file_content, write_to_file)
+			// 2. Capture tool executions (run_command, edit_file, write_file, read_file, legacy replace_file_content, write_to_file)
 			if step.StepType == "tool" && step.State == "ACTIVE" {
 				if !seenToolSteps[step.StepIndex] {
 					seenToolSteps[step.StepIndex] = true
-					if step.ToolInfo != nil {
-						params := step.ToolInfo.Parameters
-						if params == nil {
-							params = make(map[string]interface{})
-						}
-
-						switch step.ToolName {
-						case "run_command":
-							if opts.OnCommand != nil {
-								cmdStr := ""
-								if cmdVal, ok := params["CommandLine"]; ok {
-									if s, okStr := cmdVal.(string); okStr {
-										cmdStr = s
-									}
-								}
-								if cmdStr == "" && conversationID != "" {
-									toolArgs := fetchToolCallDetails(conversationID, step.StepIndex, "run_command")
-									cmdStr = getToolArgString(toolArgs, "CommandLine")
-								}
-								if strings.TrimSpace(cmdStr) != "" {
-									opts.OnCommand(strings.TrimSpace(cmdStr))
-								}
-							}
-						case "replace_file_content":
-							if opts.OnFileEdit != nil {
-								var toolArgs map[string]interface{}
-								if conversationID != "" {
-									toolArgs = fetchToolCallDetails(conversationID, step.StepIndex, "replace_file_content")
-								}
-
-								targetFile, _ := params["TargetFile"].(string)
-								if targetFile == "" {
-									targetFile = getToolArgString(toolArgs, "TargetFile")
-								}
-								instruction, _ := params["Instruction"].(string)
-								if instruction == "" {
-									instruction = getToolArgString(toolArgs, "Instruction")
-								}
-								targetContent, _ := params["TargetContent"].(string)
-								if targetContent == "" {
-									targetContent = getToolArgString(toolArgs, "TargetContent")
-								}
-								replacementContent, _ := params["ReplacementContent"].(string)
-								if replacementContent == "" {
-									replacementContent = getToolArgString(toolArgs, "ReplacementContent")
-								}
-
-								var diffBuilder strings.Builder
-								if instruction != "" {
-									diffBuilder.WriteString(fmt.Sprintf("Instruction: %s\n\n", instruction))
-								}
-								diffStr := generateGitDiff(targetFile, targetContent, replacementContent)
-								if diffStr != "" {
-									diffBuilder.WriteString(diffStr)
-								}
-								opts.OnFileEdit("replace_file_content", targetFile, diffBuilder.String())
-							}
-						case "write_to_file":
-							if opts.OnFileEdit != nil {
-								var toolArgs map[string]interface{}
-								if conversationID != "" {
-									toolArgs = fetchToolCallDetails(conversationID, step.StepIndex, "write_to_file")
-								}
-
-								targetFile, _ := params["TargetFile"].(string)
-								if targetFile == "" {
-									targetFile = getToolArgString(toolArgs, "TargetFile")
-								}
-								desc, _ := params["Description"].(string)
-								if desc == "" {
-									desc = getToolArgString(toolArgs, "Description")
-								}
-								codeContent, _ := params["CodeContent"].(string)
-								if codeContent == "" {
-									codeContent = getToolArgString(toolArgs, "CodeContent")
-								}
-
-								var diffBuilder strings.Builder
-								if desc != "" {
-									diffBuilder.WriteString(fmt.Sprintf("Description: %s\n\n", desc))
-								}
-								diffStr := formatWriteContent(codeContent)
-								if diffStr != "" {
-									diffBuilder.WriteString(diffStr)
-								}
-								opts.OnFileEdit("write_to_file", targetFile, diffBuilder.String())
-							}
-						}
-					}
+					handleToolStep(step, conversationID, opts)
 				}
 			}
 

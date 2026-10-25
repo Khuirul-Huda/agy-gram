@@ -197,4 +197,6 @@ func (b *Bot) registerRoutes() {
 	// Media uploads (multimodal support)
 	b.teleBot.Handle(tele.OnPhoto, b.handler.HandlePhoto)
 	b.teleBot.Handle(tele.OnDocument, b.handler.HandleDocument)
+	b.teleBot.Handle(tele.OnVoice, b.handler.HandleVoice)
+	b.teleBot.Handle(tele.OnAudio, b.handler.HandleAudio)
 }

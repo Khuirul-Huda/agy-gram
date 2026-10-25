@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -12,6 +13,8 @@ import (
 type Session struct {
 	mu              sync.RWMutex
 	store           *storage.BoltStore
+	topicKey        string
+	topicSessions   sync.Map
 	conversationID  string
 	workspace       string
 	continueSession bool
@@ -55,9 +58,9 @@ func (s *Session) load() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	state, err := s.store.LoadSession()
+	state, err := s.store.LoadTopicSession(s.topicKey)
 	if err != nil {
-		slog.Warn("Failed to load session from bbolt store", "error", err)
+		slog.Warn("Failed to load session from bbolt store", "topicKey", s.topicKey, "error", err)
 		return
 	}
 	if state == nil {
@@ -108,9 +111,50 @@ func (s *Session) saveLocked() {
 		LastDeliveredStepIndex: s.lastDeliveredStepIndex,
 	}
 
-	if err := s.store.SaveSession(state); err != nil {
-		slog.Warn("Failed to save session state to bbolt store", "error", err)
+	if err := s.store.SaveTopicSession(s.topicKey, state); err != nil {
+		slog.Warn("Failed to save session state to bbolt store", "topicKey", s.topicKey, "error", err)
 	}
+}
+
+// ForTopic returns a SessionManager instance scoped to a specific forum topic.
+func (s *Session) ForTopic(chatID int64, threadID int) domain.SessionManager {
+	if threadID == 0 {
+		return s
+	}
+
+	key := fmt.Sprintf("%d:%d", chatID, threadID)
+	if val, ok := s.topicSessions.Load(key); ok {
+		if scoped, okSession := val.(domain.SessionManager); okSession {
+			return scoped
+		}
+	}
+
+	s.mu.RLock()
+	defaultWs := s.workspace
+	defaultMode := s.mode
+	defaultModel := s.model
+	defaultLang := s.language
+	defaultThinking := s.thinkingEnabled
+	s.mu.RUnlock()
+
+	scoped := &Session{
+		store:           s.store,
+		topicKey:        key,
+		conversationID:  "",
+		workspace:       defaultWs,
+		continueSession: false,
+		mode:            defaultMode,
+		model:           defaultModel,
+		effort:          "",
+		language:        defaultLang,
+		thinkingEnabled: defaultThinking,
+		lastUserID:      0,
+	}
+	if scoped.store != nil {
+		scoped.load()
+	}
+	s.topicSessions.Store(key, scoped)
+	return scoped
 }
 
 // GetConversationID returns the active Antigravity CLI conversation ID.

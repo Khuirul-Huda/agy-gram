@@ -5,6 +5,24 @@ import (
 	"time"
 )
 
+// ToolKind classifies the type of tool operation performed by an agent.
+type ToolKind string
+
+const (
+	ToolKindCommand ToolKind = "command"
+	ToolKindRead    ToolKind = "read"
+	ToolKindEdit    ToolKind = "edit"
+	ToolKindWrite   ToolKind = "write"
+)
+
+// ToolEvent represents a structured agent tool execution event.
+type ToolEvent struct {
+	Kind     ToolKind
+	ToolName string
+	Target   string // file path or command string
+	Detail   string // diff, description, or parameter details
+}
+
 // PromptOptions holds options for sending a prompt to Antigravity CLI.
 type PromptOptions struct {
 	Prompt          string
@@ -17,6 +35,8 @@ type PromptOptions struct {
 	VerboseThinking bool
 	OnCommand       func(cmd string)
 	OnFileEdit      func(toolName, targetFile, diff string)
+	OnFileRead      func(targetFile string)
+	OnToolEvent     func(event ToolEvent)
 	OnThinking      func(thinking string)
 	OnTextDelta     func(delta string)
 	OnConversation  func(conversationID string)
@@ -99,6 +119,7 @@ type SessionManager interface {
 	Reset()
 	ListSessions(limit int) ([]SessionRecord, error)
 	SwitchSession(convID string) error
+	ForTopic(chatID int64, threadID int) SessionManager
 }
 
 // MetricsCollector collects host system resource metrics.

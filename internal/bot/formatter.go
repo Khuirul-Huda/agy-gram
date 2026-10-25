@@ -16,7 +16,8 @@ var (
 	italicUnderRegex = regexp.MustCompile(`(^|[\s(])_([^_\s\n](?:[^_\n]*?[^_\s\n])?)_($|[\s).,!?])`)
 	blockquoteRegex  = regexp.MustCompile(`(?m)^&gt;\s*(.+)$`)
 	strikeRegex      = regexp.MustCompile(`~~(.+?)~~`)
-	linkRegex        = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^\)]+)\)`)
+	fileLinkRegex    = regexp.MustCompile(`\[([^\]]+)\]\(file://[^\)]*\)`)
+	linkRegex        = regexp.MustCompile(`\[([^\]]+)\]\(((?:https?|tg)://[^\)]+)\)`)
 	inlineRegex      = regexp.MustCompile("`([^`\n]+)`")
 )
 
@@ -165,7 +166,21 @@ func MarkdownToTelegramHTML(input string) string {
 	// 8. Strikethrough (~~text~~ -> <s>text</s>)
 	processed = strikeRegex.ReplaceAllString(processed, "<s>$1</s>")
 
-	// 9. Links ([title](url) -> <a href="url">title</a>)
+	// 9. Links
+	// Convert file:// links to code elements since Telegram does not support the file:// protocol
+	processed = fileLinkRegex.ReplaceAllStringFunc(processed, func(m string) string {
+		match := fileLinkRegex.FindStringSubmatch(m)
+		if len(match) < 2 {
+			return m
+		}
+		title := match[1]
+		if strings.Contains(title, "\x00IC") || strings.HasPrefix(title, "&lt;code&gt;") || strings.HasPrefix(title, "<code>") {
+			return title
+		}
+		return fmt.Sprintf("<code>%s</code>", title)
+	})
+
+	// Web links ([title](url) -> <a href="url">title</a>)
 	processed = linkRegex.ReplaceAllString(processed, `<a href="$2">$1</a>`)
 
 	// 10. Restore inline code blocks

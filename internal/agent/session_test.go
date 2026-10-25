@@ -148,3 +148,50 @@ func TestSessionPersistence(t *testing.T) {
 		t.Errorf("expected restored lastDeliveredStepIndex 77, got %d", s2.GetLastDeliveredStepIndex())
 	}
 }
+
+func TestSessionForTopic(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "topic_test.db")
+	store, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open bolt store: %v", err)
+	}
+	defer store.Close()
+
+	root := NewSession("auto", "default-model", false, store)
+	root.SetConversationID("root-conv")
+	root.SetWorkspace("/home/root")
+
+	// Thread 0 returns root
+	if root.ForTopic(100, 0) != root {
+		t.Errorf("expected thread 0 to return root session")
+	}
+
+	// Topic 42 has its own isolated conversation and workspace
+	topic42 := root.ForTopic(100, 42)
+	if topic42 == root {
+		t.Errorf("expected topic 42 to be distinct from root")
+	}
+	topic42.SetConversationID("topic42-conv")
+	topic42.SetWorkspace("/home/topic42")
+
+	// Check isolation
+	if root.GetConversationID() != "root-conv" {
+		t.Errorf("expected root conv to remain 'root-conv', got '%s'", root.GetConversationID())
+	}
+	if topic42.GetConversationID() != "topic42-conv" {
+		t.Errorf("expected topic42 conv to be 'topic42-conv', got '%s'", topic42.GetConversationID())
+	}
+	if root.GetWorkspace() != "/home/root" {
+		t.Errorf("expected root workspace to remain '/home/root', got '%s'", root.GetWorkspace())
+	}
+	if topic42.GetWorkspace() != "/home/topic42" {
+		t.Errorf("expected topic42 workspace to be '/home/topic42', got '%s'", topic42.GetWorkspace())
+	}
+
+	// Fetching same topic returns cached instance
+	topic42Cached := root.ForTopic(100, 42)
+	if topic42Cached != topic42 {
+		t.Errorf("expected same instance from cache")
+	}
+}

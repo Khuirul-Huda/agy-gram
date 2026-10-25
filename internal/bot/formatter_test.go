@@ -65,7 +65,7 @@ func TestMarkdownToTelegramHTML_CodeBlockWithSpecialChars(t *testing.T) {
 }
 
 func TestMarkdownToTelegramHTML_LinksAndHeaders(t *testing.T) {
-	input := "# Main Title\nCheck [Google](https://google.com) now."
+	input := "# Main Title\nCheck [Google](https://google.com) and [example](file://path/) and [`Session`](file:///path/to/session.go#L10) now."
 	output := MarkdownToTelegramHTML(input)
 
 	if !strings.Contains(output, "<b>Main Title</b>") {
@@ -73,6 +73,18 @@ func TestMarkdownToTelegramHTML_LinksAndHeaders(t *testing.T) {
 	}
 	if !strings.Contains(output, `<a href="https://google.com">Google</a>`) {
 		t.Errorf("link not converted to anchor: %s", output)
+	}
+	if !strings.Contains(output, `<code>example</code>`) {
+		t.Errorf("file link not converted to code: %s", output)
+	}
+	if !strings.Contains(output, `<code>Session</code>`) {
+		t.Errorf("backticked file link not converted to code: %s", output)
+	}
+	if strings.Contains(output, `<code><code>`) {
+		t.Errorf("found nested code tags in output: %s", output)
+	}
+	if strings.Contains(output, `file://`) {
+		t.Errorf("file link protocol still present in output: %s", output)
 	}
 }
 

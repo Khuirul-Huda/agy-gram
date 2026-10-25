@@ -85,10 +85,20 @@ func (s *BoltStore) Close() error {
 
 // SaveSession persists the active session state and archives it into sessions history.
 func (s *BoltStore) SaveSession(state SessionState) error {
+	return s.SaveTopicSession("", state)
+}
+
+// SaveTopicSession persists session state scoped to a specific forum topic.
+func (s *BoltStore) SaveTopicSession(topicKey string, state SessionState) error {
 	state.UpdatedAt = time.Now()
 	data, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("failed to marshal session state: %w", err)
+	}
+
+	key := keySession
+	if topicKey != "" {
+		key = []byte("topic:" + topicKey)
 	}
 
 	return s.db.Update(func(tx *bbolt.Tx) error {
@@ -96,7 +106,7 @@ func (s *BoltStore) SaveSession(state SessionState) error {
 		if bState == nil {
 			return fmt.Errorf("bucket %s not found", bucketState)
 		}
-		if err := bState.Put(keySession, data); err != nil {
+		if err := bState.Put(key, data); err != nil {
 			return err
 		}
 
@@ -112,15 +122,25 @@ func (s *BoltStore) SaveSession(state SessionState) error {
 
 // LoadSession retrieves the persistent session state. Returns nil if none exists.
 func (s *BoltStore) LoadSession() (*SessionState, error) {
+	return s.LoadTopicSession("")
+}
+
+// LoadTopicSession retrieves persistent session state scoped to a specific forum topic.
+func (s *BoltStore) LoadTopicSession(topicKey string) (*SessionState, error) {
 	var state SessionState
 	var found bool
+
+	key := keySession
+	if topicKey != "" {
+		key = []byte("topic:" + topicKey)
+	}
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketState)
 		if b == nil {
 			return nil
 		}
-		data := b.Get(keySession)
+		data := b.Get(key)
 		if len(data) == 0 {
 			return nil
 		}
