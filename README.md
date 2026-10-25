@@ -1,21 +1,67 @@
 # AGY-Gram 🤖⚡
 
-[English](README.md) | [Bahasa Indonesia](README.id.md)
+<p align="center">
+  <strong>The Ultra-Lightweight Telegram Bridge for Google Antigravity CLI (<code>agy</code>)</strong><br>
+  Control your AI coding agent from your phone via text or voice, watch live tool progress in-place, and manage multiple projects seamlessly.
+</p>
 
-**AGY-Gram** is a lightweight, high-performance bridge service written in **Golang** designed to control the **Google Antigravity CLI (`agy`)** directly from **Telegram**.
+<p align="center">
+  <a href="https://golang.org"><img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go" alt="Go Version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License" /></a>
+  <img src="https://img.shields.io/badge/RAM_Footprint-~10--15_MB-success?style=flat" alt="Low Memory Footprint" />
+  <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20macOS-lightgrey?style=flat" alt="Platforms" />
+  <a href="https://core.telegram.org/bots"><img src="https://img.shields.io/badge/Telegram_Bot-Telebot.v3-2CA5E0?style=flat&logo=telegram" alt="Telegram Bot" /></a>
+  <img src="https://img.shields.io/badge/Companion_for-Google_Antigravity-4285F4?style=flat&logo=google" alt="Google Antigravity" />
+</p>
 
-Architected around **Clean Architecture** and **SOLID** principles, AGY-Gram operates with an ultra-low memory footprint (~10-15 MB RAM). This makes it ideal for running on low-power home servers (such as Intel Celeron or single-board computers) without competing for system resources.
+<p align="center">
+  <a href="README.md"><strong>English</strong></a> · <a href="README.id.md"><strong>Bahasa Indonesia</strong></a>
+</p>
 
 ---
 
-## 🏗️ Architecture & Clean Principles
+## 🌟 Why AGY-Gram?
+
+Most agent-to-chat bridges are built on heavy multi-runtime stacks (Python/Node) consuming 100–250+ MB of RAM just to idle. **AGY-Gram** is built strictly in **Golang** following **Clean Architecture** and **SOLID** principles, delivering an ultra-lean footprint of **only ~10–15 MB RAM**. 
+
+It is purpose-built as a first-class companion for **Google Antigravity CLI (`agy`)**, optimized specifically for low-power home servers, Raspberry Pis, or cost-efficient VPS environments without competing for hardware resources.
+
+---
+
+## ⚡ Core Features
+
+* 🎙️ **Direct Multimodal Audio & Voice Notes (Zero External Whisper):**
+  * Send voice notes (`.oga`/`.ogg`) or audio recordings directly on Telegram.
+  * Leverages Google Gemini's native audio multimodal understanding without needing local Whisper or external speech-to-text API latency.
+* 📡 **Live In-Place Progress & Collapsible Thinking:**
+  * Clean, single-message live updater that tracks agent activity in real time.
+  * Real-time status for `read_file`, `edit_file`, `write_file`, and shell commands (`run_command`).
+  * AI reasoning thoughts are rendered inside a sleek, expandable Telegram quote (`<blockquote expandable>`), keeping your chat clean and uncluttered.
+  * Zero message spam — the live progress card seamlessly morphs into the final response upon completion.
+* 👥 **Telegram Forum Topics Mode:**
+  * Full support for Telegram Supergroup Forum Topics.
+  * Multi-project isolation: each topic thread automatically retains its own conversation history, active workspace directory, and AI model settings.
+* 🔗 **Smart Markdown & File Link Converter:**
+  * Translates `file://` URIs and code symbols into clean monospaced Telegram elements (`<code>filename.go</code>`), eliminating raw, broken markdown syntax.
+* 🔘 **Interactive Confirmation & Choice Buttons:**
+  * Automatically turns agent prompts containing `[CONFIRM: Yes | No]` or `[BUTTONS: Option 1 | Option 2]` into clickable Telegram Inline Keyboard buttons.
+* 📊 **Server & Telemetry Monitor (`/status`):**
+  * Real-time hardware telemetry: CPU load, physical RAM, ZRAM swap, SSD disk usage, and agent daemon state.
+* ⏳ **Token Quota & Rate Limit Inspection (`/usage`):**
+  * Real-time inspection of your remaining Antigravity model quotas and weekly reset schedules.
+* 🛡️ **Robust Process Group Isolation:**
+  * Launches `agy` with POSIX `Setpgid: true` process group isolation. Cancelling via `/stop` or turn timeouts terminates all child processes cleanly with zero orphaned zombies.
+
+---
+
+## 🏗️ Architecture (Clean & Hexagonal)
 
 ```text
        Telegram Long-Polling
                  ↓
       ┌─────────────────────┐
       │   Telegram Bot UI   │  (internal/bot)
-      │  (Auth & Formatting)│
+      │  (Auth & Rendering) │
       └──────────┬──────────┘
                  │ calls domain interfaces
                  ▼
@@ -35,118 +81,129 @@ Antigravity CLI
 (`agy -p ...`)
 ```
 
-- **Separation of Concerns & Hexagonal Architecture:** The core domain logic has zero dependencies on Telegram libraries, CLI frameworks, or external infrastructure.
-- **Process Group Isolation:** Spawns child processes with `Setpgid: true` so cancellation (`/stop`) or timeouts terminate the entire process group cleanly without orphaned zombie processes.
-- **Concurrency Safety:** Mutex synchronization prevents overlapping executions, protecting constrained multi-threaded CPUs from thrashing.
-- **Smart Chunking:** Intelligently splits agent responses across Telegram's 4096-character limit without breaking code blocks or words awkwardly.
-- **Typing Heartbeat & Fast ACK:** Sends an immediate placeholder reply and continuous typing indicator while the agent reasons and executes tasks to prevent timeouts.
-- **Interactive Buttons (`[CONFIRM:]` & `[BUTTONS:]`):** When the AI outputs `[CONFIRM: Yes | No]` or `[BUTTONS: Opt1 | Opt2]`, AGY-Gram converts them into clickable Telegram Inline Keyboard buttons.
-- **Native Command Menu:** Automatically registers commands on startup via `SetCommands` so Telegram displays the native "Menu" button.
+- **Separation of Concerns:** Core domain contracts have zero external dependencies on Telegram, CLI, or storage libraries.
+- **Embedded Persistence:** Session history, workspace mappings, and topic bindings persist across server reboots via embedded `bbolt` KV database.
+- **Network Security:** Pure outbound HTTPS long-polling. Requires **no open inbound ports, no webhook certificates, and no public IP exposure**.
 
 ---
 
-## 📋 Telegram Commands
+## 📋 Command Reference
 
 | Command | Description |
 | :--- | :--- |
-| **`/start`** | Welcome greeting and bot connectivity verification. |
-| **`/help`** | Full command reference and usage guide. |
-| **`/new`** | Reset session context (starts a fresh session without the `-c` continue flag). |
-| **`/status`** | Real-time host hardware metrics (CPU, RAM, ZRAM Swap, SSD) and agent state. |
-| **`/mode [auto\|plan\|accept-edits]`** | Inspect or switch Antigravity execution mode. |
-| **`/model [model_name]`** | Interactive button menu or text override for AI models. |
-| **`/effort [level]`** | Interactive button menu or text override for reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`). |
-| **`/thinking [on\|off]`** | Inspect or toggle verbose AI reasoning stream to Telegram. |
-| **`/stop`** or **`/cancel`** | Terminate any active agent process group immediately. |
-| *Plain Text Message* | Any text message is forwarded as an interactive prompt to `agy`. |
+| **`/start`** or **`/menu`** | Open the interactive graphical control panel dashboard. |
+| **`/help`** | View complete user guide and syntax documentation. |
+| **`/new`** | Reset active session memory and start a fresh conversation. |
+| **`/status`** | Real-time host hardware metrics (CPU, RAM, ZRAM Swap, SSD) and runner state. |
+| **`/usage`** | Check current Antigravity token quotas, model buckets, and reset windows. |
+| **`/mode [auto\|plan\|accept-edits]`** | Switch execution mode (`auto`, `plan`, or `accept-edits`). |
+| **`/model [name]`** | Interactive button selector or text override for AI models. |
+| **`/effort [level]`** | Set reasoning effort (`low`, `medium`, `high`, `xhigh`, `max`). |
+| **`/thinking [on\|off]`** | Inspect or toggle verbose AI reasoning stream. |
+| **`/workspace [path]`** | Switch active working directory for `agy` execution. |
+| **`/sessions`** | Browse and switch between previous conversation histories. |
+| **`/restart`** | Perform a safe, graceful restart of the AGY-Gram daemon. |
+| **`/stop`** or **`/cancel`** | Immediately kill active agent execution and child process tree. |
+| *Plain Text Message* | Forwarded directly as a prompt turn to Antigravity CLI. |
+| *Voice / Audio Message* | Forwarded directly to Antigravity CLI with native multimodal audio processing. |
+| *Photo / Document* | Downloaded to `<workspace>/uploads` and analyzed visually by `agy`. |
 
 ---
 
 ## ⚙️ Configuration (`.env`)
 
-Copy the configuration template:
+1. Copy the environment configuration template:
+   ```bash
+   cp .env.example .env
+   nano .env
+   ```
 
-```bash
-cp .env.example .env
-nano .env
-```
+2. Fill in your credentials:
+   ```ini
+   # Telegram bot token obtained from @BotFather
+   TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ
 
-Configure the environment variables:
+   # Authorized Telegram User IDs (comma-separated for multiple users)
+   # Requests from any ID not in this list are rejected.
+   ALLOWED_USER_IDS=123456789
 
-```ini
-# Telegram bot token obtained from @BotFather
-TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ
+   # Path to the Antigravity binary (default: agy)
+   AGY_BIN_PATH=agy
 
-# Authorized Telegram User IDs (comma-separated for multiple users)
-# Requests from any ID not in this list are rejected.
-ALLOWED_USER_IDS=123456789
+   # Working directory where agy commands will execute (e.g. /home/username or ./)
+   AGY_WORKING_DIR=./
 
-# Path to the Antigravity binary (default: agy)
-AGY_BIN_PATH=agy
+   # Execution timeout per prompt turn in minutes (0 for unlimited, default: 5)
+   AGY_TIMEOUT_MINUTES=5
 
-# Working directory where agy commands will execute (e.g. /home/username/workspace or ./)
-AGY_WORKING_DIR=./
+   # Default execution mode (auto, plan, accept-edits)
+   AGY_DEFAULT_MODE=auto
 
-# Execution timeout per prompt turn (in minutes, default: 5)
-AGY_TIMEOUT_MINUTES=5
+   # Default AI model override (optional, leave empty for CLI default)
+   AGY_DEFAULT_MODEL=
 
-# Default execution mode (auto, plan, accept-edits)
-AGY_DEFAULT_MODE=auto
+   # Enable verbose thinking stream by default (true/false, default: false)
+   AGY_VERBOSE_THINKING=false
 
-# Default AI model override (optional, leave empty for CLI default)
-AGY_DEFAULT_MODEL=
+   # Optional outbound HTTP/HTTPS proxy for Telegram API (useful if Telegram is restricted)
+   TELEGRAM_PROXY=
+   ```
 
-# Enable verbose thinking stream by default (true/false, default: false)
-AGY_VERBOSE_THINKING=false
-```
-
-> [!IMPORTANT]
-> **Finding your Telegram User ID:**  
-> Message `@userinfobot` on Telegram to obtain your numeric account ID.
+> [!TIP]
+> **Find your Telegram User ID:** Message [`@userinfobot`](https://t.me/userinfobot) on Telegram to get your numeric ID.
 
 ---
 
-## 🚀 Building & Running (Production with PM2)
+## 🚀 Quick Start & Deployment
 
-### 1. Build Binary
+### Prerequisites
+* **Go 1.22+** installed on host.
+* **Google Antigravity CLI (`agy`)** installed and authenticated on the system `PATH`.
+
+### 1. Build Standalone Binary
 
 ```bash
 make build
 ```
-Generates a standalone, static ELF binary in `bin/agy-gram` (~6 MB).
+This produces an optimized, static ELF binary in `bin/agy-gram` (~6–7 MB).
 
-### 2. Run Daemon with PM2
+### 2. Run with PM2 (Recommended for 24/7 Home Servers)
 
 ```bash
 # Start background daemon via PM2
 make pm2-start
-# or: pm2 start ecosystem.config.js
 
-# Check status and memory consumption
+# View real-time status and memory consumption (~10 MB)
 pm2 status
 
-# Tail real-time logs
+# Tail real-time service logs
 make pm2-logs
-# or: pm2 logs agy-gram
 
-# Save PM2 process list across system reboots
+# Persist daemon across host reboots
 pm2 save
 ```
 
-### 3. Makefile Targets
+### 3. Makefile Utilities
 
-- `make test` : Execute automated unit tests.
-- `make clean` : Remove build binaries.
-- `make pm2-restart` : Recompile binary and reload PM2 service.
-- `make pm2-stop` : Stop the PM2 service.
+* `make test` : Run unit tests across all packages.
+* `make build` : Recompile standalone binary.
+* `make pm2-restart` : Recompile binary and reload the PM2 service.
+* `make pm2-stop` : Gracefully stop the PM2 process.
+* `make clean` : Remove build artifacts.
 
 ---
 
 ## 🔒 Security Hardening
 
-1. **User Whitelist**: Strictly enforces allowed Telegram User IDs at the middleware level.
-2. **Outbound Long-Polling**: Connects to Telegram via HTTPS outbound long-polling only; **no open inbound ports or public IP exposure required**.
-3. **Graceful Teardown**: Listens for `SIGINT` / `SIGTERM` signals to cleanly abort active child processes before shutting down.
+1. **User Whitelist Enforcement:** Only User IDs configured in `ALLOWED_USER_IDS` can interact with the bot. Unauthorized messages receive a polite rejection and are logged.
+2. **Outbound-Only Polling:** Never opens inbound listening ports or exposes webhooks. Works cleanly behind NAT, dynamic IPs, and VPNs (Tailscale/WireGuard).
+3. **No Proxy Contamination:** AGY-Gram guarantees that any local proxy used for Telegram communication is never inherited by child `agy` agent executions.
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
