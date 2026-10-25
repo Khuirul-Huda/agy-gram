@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/Khuirul-Huda/agy-gram/internal/agent"
 	"github.com/Khuirul-Huda/agy-gram/internal/bot"
@@ -38,9 +39,9 @@ func main() {
 	runner := agent.NewRunner(cfg.AgyBinPath, cfg.AgyWorkingDir, cfg.AgyTimeout)
 	session := agent.NewSession(cfg.AgyDefaultMode, cfg.AgyDefaultModel, cfg.VerboseThinking, store)
 	monitor := system.NewMonitor(runner)
-	handler := bot.NewHandler(runner, session, monitor)
+	handler := bot.NewHandler(runner, session, monitor, store)
 
-	telegramBot, err := bot.NewBot(cfg, handler, session)
+	telegramBot, err := bot.NewBot(cfg, handler, session, store)
 	if err != nil {
 		slog.Error("Failed to initialize Telegram bot", "error", err)
 		os.Exit(1)
@@ -54,10 +55,19 @@ func main() {
 		sig := <-shutdownChan
 		slog.Info("Shutdown signal received", "signal", sig.String())
 
-		// Terminate any active CLI child process
+		// If agent is actively processing a turn, allow up to 8s for it to finish and deliver gracefully
 		if runner.IsRunning() {
-			slog.Info("Terminating active agent process...")
-			runner.CancelCurrent()
+			slog.Info("Agent is actively executing. Waiting up to 8s for turn to complete gracefully...")
+			deadline := time.Now().Add(8 * time.Second)
+			for runner.IsRunning() && time.Now().Before(deadline) {
+				time.Sleep(200 * time.Millisecond)
+			}
+			if runner.IsRunning() {
+				slog.Warn("Turn did not finish within graceful drain timeout. Terminating process group...")
+				runner.CancelCurrent()
+			} else {
+				slog.Info("Active turn completed cleanly before shutdown.")
+			}
 		}
 
 		telegramBot.Stop()

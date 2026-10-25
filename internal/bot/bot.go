@@ -9,6 +9,7 @@ import (
 
 	"github.com/Khuirul-Huda/agy-gram/internal/config"
 	"github.com/Khuirul-Huda/agy-gram/internal/domain"
+	"github.com/Khuirul-Huda/agy-gram/internal/storage"
 	tele "gopkg.in/telebot.v3"
 	"gopkg.in/telebot.v3/middleware"
 )
@@ -19,10 +20,11 @@ type Bot struct {
 	cfg     *config.Config
 	handler *Handler
 	session domain.SessionManager
+	store   *storage.BoltStore
 }
 
 // NewBot initializes a new Telegram bot instance.
-func NewBot(cfg *config.Config, handler *Handler, session domain.SessionManager) (*Bot, error) {
+func NewBot(cfg *config.Config, handler *Handler, session domain.SessionManager, store ...*storage.BoltStore) (*Bot, error) {
 	client := &http.Client{Timeout: time.Minute}
 	if cfg.TelegramProxy != "" {
 		if proxyURL, err := url.Parse(cfg.TelegramProxy); err == nil {
@@ -46,11 +48,17 @@ func NewBot(cfg *config.Config, handler *Handler, session domain.SessionManager)
 		return nil, err
 	}
 
+	var sStore *storage.BoltStore
+	if len(store) > 0 {
+		sStore = store[0]
+	}
+
 	bot := &Bot{
 		teleBot: b,
 		cfg:     cfg,
 		handler: handler,
 		session: session,
+		store:   sStore,
 	}
 
 	bot.registerMiddlewares()
@@ -102,8 +110,8 @@ func (b *Bot) registerBotCommands() {
 func (b *Bot) Start() {
 	slog.Info("Starting Telegram bot polling", "bot_user", b.teleBot.Me.Username)
 
-	// Check if this startup was triggered by a restart request and notify user
-	CheckAndNotifyRestart(b.teleBot, b.session, b.cfg)
+	// Check if this startup was triggered by a restart request and recover active or completed turns
+	CheckAndNotifyRestart(b.teleBot, b.session, b.cfg, b.store)
 
 	b.teleBot.Start()
 }
@@ -192,6 +200,7 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle(&tele.Btn{Unique: "user_choice"}, b.handler.HandleUserChoiceCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "plan_approve"}, b.handler.HandlePlanApproveCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "plan_revise"}, b.handler.HandlePlanReviseCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "turn_resume"}, b.handler.HandleTurnResumeCallback)
 
 	// Plain text messages routed as agent prompts
 	b.teleBot.Handle(tele.OnText, b.handler.HandlePrompt)

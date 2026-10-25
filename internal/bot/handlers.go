@@ -16,6 +16,7 @@ import (
 	"github.com/Khuirul-Huda/agy-gram/internal/agent"
 	"github.com/Khuirul-Huda/agy-gram/internal/config"
 	"github.com/Khuirul-Huda/agy-gram/internal/domain"
+	"github.com/Khuirul-Huda/agy-gram/internal/storage"
 	tele "gopkg.in/telebot.v3"
 )
 
@@ -26,7 +27,7 @@ func markRestarting(userID int64) {
 }
 
 // CheckAndNotifyRestart checks if agy-gram was restarted and sends a recovery confirmation and any unsent AGY replies.
-func CheckAndNotifyRestart(b *tele.Bot, session domain.SessionManager, cfg *config.Config) {
+func CheckAndNotifyRestart(b *tele.Bot, session domain.SessionManager, cfg *config.Config, store ...*storage.BoltStore) {
 	data, err := os.ReadFile(restartMarkerFile)
 	hasMarker := err == nil
 	if hasMarker {
@@ -76,7 +77,51 @@ func CheckAndNotifyRestart(b *tele.Bot, session domain.SessionManager, cfg *conf
 		}
 	}
 
-	// Check if there was an undelivered response from AGY prior to the restart
+	// 1. Check if there was an in-flight active turn that was interrupted by the restart
+	if len(store) > 0 && store[0] != nil {
+		sStore := store[0]
+		if activeTurn, tErr := sStore.LoadActiveTurn(); tErr == nil && activeTurn != nil {
+			slog.Info("Found interrupted active turn from prior execution", "chat_id", activeTurn.ChatID, "msg_id", activeTurn.MessageID)
+
+			var delivered bool
+			if activeTurn.ConversationID != "" {
+				if resp, rErr := agent.GetLatestAssistantResponse(activeTurn.ConversationID); rErr == nil && resp != nil {
+					lastDelivered := session.GetLastDeliveredStepIndex()
+					if resp.StepIndex > lastDelivered && strings.TrimSpace(resp.Content) != "" {
+						slog.Info("Interrupted turn had completed response in transcript, delivering to user", "step", resp.StepIndex)
+						msg := &tele.Message{ID: activeTurn.MessageID, Chat: &tele.Chat{ID: activeTurn.ChatID}}
+						cleanOutput, _ := ExtractInteractiveButtons(resp.Content)
+						cleanOutput = FormatMarkdownTables(cleanOutput)
+						chunks := SplitMessage(cleanOutput)
+						if len(chunks) > 0 {
+							firstChunkHTML := "📬 <b>Balasan dari AGY (sebelum restart):</b>\n\n" + MarkdownToTelegramHTML(chunks[0])
+							_, _ = safeEditMessage(b, msg, firstChunkHTML, tele.ModeHTML)
+							for i := 1; i < len(chunks); i++ {
+								_, _ = b.Send(&tele.Chat{ID: activeTurn.ChatID}, MarkdownToTelegramHTML(chunks[i]), tele.ModeHTML)
+							}
+						}
+						session.SetLastDeliveredStepIndex(resp.StepIndex)
+						delivered = true
+					}
+				}
+			}
+
+			// If turn was interrupted mid-stream and never completed, update pending message with 1-click resume button
+			if !delivered {
+				targetMsg := &tele.Message{ID: activeTurn.MessageID, Chat: &tele.Chat{ID: activeTurn.ChatID}}
+				menu := &tele.ReplyMarkup{}
+				btnResume := menu.Data("▶️ Lanjutkan Instruksi Ini", "turn_resume", activeTurn.ConversationID)
+				menu.Inline(menu.Row(btnResume))
+
+				notice := fmt.Sprintf("⚠️ <b>Service telah direstart saat instruksi ini sedang diproses:</b>\n<i>\"%s\"</i>\n\nKonteks percakapan tetap tersimpan aman di server. Klik tombol di bawah untuk melanjutkan.", html.EscapeString(activeTurn.Prompt))
+				_, _ = safeEditMessage(b, targetMsg, notice, menu, tele.ModeHTML)
+			}
+
+			_ = sStore.ClearActiveTurn()
+		}
+	}
+
+	// 2. Fallback check if there was an undelivered response in transcript without active turn marker
 	if session != nil {
 		if convID := session.GetConversationID(); convID != "" {
 			lastDelivered := session.GetLastDeliveredStepIndex()
@@ -122,15 +167,21 @@ type Handler struct {
 	runner      domain.AgentRunner
 	session     domain.SessionManager
 	monitor     domain.MetricsCollector
+	store       *storage.BoltStore
 	choiceCache sync.Map
 }
 
-// NewHandler creates a new Handler instance.
-func NewHandler(runner domain.AgentRunner, session domain.SessionManager, monitor domain.MetricsCollector) *Handler {
+// NewHandler creates a new Handler instance with optional bolt store for recovery journaling.
+func NewHandler(runner domain.AgentRunner, session domain.SessionManager, monitor domain.MetricsCollector, store ...*storage.BoltStore) *Handler {
+	var sStore *storage.BoltStore
+	if len(store) > 0 {
+		sStore = store[0]
+	}
 	return &Handler{
 		runner:  runner,
 		session: session,
 		monitor: monitor,
+		store:   sStore,
 	}
 }
 
@@ -1060,6 +1111,25 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 	ackMsg, _ := c.Bot().Send(c.Recipient(), msgFastAck(lang), tele.ModeHTML)
 	tracker := newLiveTracker(c.Bot(), c.Recipient(), ackMsg, lang)
 
+	// Journal in-flight active turn in embedded bolt store to recover if service restarts mid-stream
+	if h.store != nil && ackMsg != nil && c.Chat() != nil {
+		threadID := 0
+		if c.Message() != nil {
+			threadID = c.Message().ThreadID
+		}
+		_ = h.store.SaveActiveTurn(storage.ActiveTurn{
+			ChatID:         c.Chat().ID,
+			ThreadID:       threadID,
+			MessageID:      ackMsg.ID,
+			ConversationID: session.GetConversationID(),
+			Prompt:         prompt,
+			StartedAt:      time.Now(),
+		})
+		defer func() {
+			_ = h.store.ClearActiveTurn()
+		}()
+	}
+
 	// 2. Start continuous periodic typing indicator ticker
 	stopTyping := make(chan struct{})
 	go h.startTypingTicker(c, stopTyping)
@@ -1152,4 +1222,12 @@ func (h *Handler) startTypingTicker(c tele.Context, stopChan <-chan struct{}) {
 			return
 		}
 	}
+}
+
+// HandleTurnResumeCallback handles user clicking "▶️ Lanjutkan Instruksi Ini".
+func (h *Handler) HandleTurnResumeCallback(c tele.Context) error {
+	_ = c.Respond(&tele.CallbackResponse{Text: "Melanjutkan instruksi..."})
+	session := h.getSession(c)
+	session.SetContinue(true)
+	return h.executePrompt(c, "Lanjutkan instruksi sebelumnya yang sempat terhenti karena restart.")
 }

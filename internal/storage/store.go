@@ -12,11 +12,22 @@ import (
 )
 
 var (
-	bucketState       = []byte("state")
-	bucketSessions    = []byte("sessions")
-	keySession        = []byte("session")
+	bucketState        = []byte("state")
+	bucketSessions     = []byte("sessions")
+	keySession         = []byte("session")
+	keyActiveTurn      = []byte("active_turn")
 	keyActiveWorkspace = []byte("active_workspace")
 )
+
+// ActiveTurn tracks an in-flight prompt turn to recover or notify upon crash/restart.
+type ActiveTurn struct {
+	ChatID         int64     `json:"chat_id"`
+	ThreadID       int       `json:"thread_id"`
+	MessageID      int       `json:"message_id"`
+	ConversationID string    `json:"conversation_id"`
+	Prompt         string    `json:"prompt"`
+	StartedAt      time.Time `json:"started_at"`
+}
 
 // SessionState stores persistent session information across bot restarts.
 type SessionState struct {
@@ -155,6 +166,54 @@ func (s *BoltStore) LoadTopicSession(topicKey string) (*SessionState, error) {
 		return nil, nil
 	}
 	return &state, nil
+}
+
+// SaveActiveTurn persists metadata of an in-flight prompt turn.
+func (s *BoltStore) SaveActiveTurn(turn ActiveTurn) error {
+	data, err := json.Marshal(turn)
+	if err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketState)
+		if b == nil {
+			return fmt.Errorf("bucket %s not found", bucketState)
+		}
+		return b.Put(keyActiveTurn, data)
+	})
+}
+
+// LoadActiveTurn retrieves in-flight turn metadata if one was interrupted.
+func (s *BoltStore) LoadActiveTurn() (*ActiveTurn, error) {
+	var turn ActiveTurn
+	var found bool
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketState)
+		if b == nil {
+			return nil
+		}
+		data := b.Get(keyActiveTurn)
+		if len(data) == 0 {
+			return nil
+		}
+		found = true
+		return json.Unmarshal(data, &turn)
+	})
+	if err != nil || !found {
+		return nil, err
+	}
+	return &turn, nil
+}
+
+// ClearActiveTurn deletes in-flight turn metadata upon normal completion.
+func (s *BoltStore) ClearActiveTurn() error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketState)
+		if b == nil {
+			return nil
+		}
+		return b.Delete(keyActiveTurn)
+	})
 }
 
 // ListSessions returns recent conversation sessions sorted by UpdatedAt descending.

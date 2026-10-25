@@ -77,4 +77,30 @@ func TestBoltStore_SaveAndLoad(t *testing.T) {
 	if loaded.LastDeliveredStepIndex != testState.LastDeliveredStepIndex {
 		t.Errorf("LastDeliveredStepIndex mismatch: got %d, want %d", loaded.LastDeliveredStepIndex, testState.LastDeliveredStepIndex)
 	}
+
+	// Verify active turn lifecycle
+	activeTurn := ActiveTurn{
+		ChatID:         123,
+		ThreadID:       45,
+		MessageID:      678,
+		ConversationID: "conv-12345",
+		Prompt:         "Test turn",
+	}
+	if err := store.SaveActiveTurn(activeTurn); err != nil {
+		t.Fatalf("SaveActiveTurn failed: %v", err)
+	}
+	loadedTurn, err := store.LoadActiveTurn()
+	if err != nil || loadedTurn == nil {
+		t.Fatalf("LoadActiveTurn failed: %v", err)
+	}
+	if loadedTurn.MessageID != 678 || loadedTurn.ConversationID != "conv-12345" {
+		t.Errorf("unexpected loaded turn: %+v", loadedTurn)
+	}
+	if err := store.ClearActiveTurn(); err != nil {
+		t.Fatalf("ClearActiveTurn failed: %v", err)
+	}
+	clearedTurn, err := store.LoadActiveTurn()
+	if err != nil || clearedTurn != nil {
+		t.Errorf("expected nil turn after clear, got %+v", clearedTurn)
+	}
 }
