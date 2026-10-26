@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	liveThrottleInterval = 1200 * time.Millisecond
-	maxLiveThinkingLen   = 350
+	liveThrottleInterval   = 800 * time.Millisecond
+	maxTelegramThinkingLen = 3500
 )
 
 // liveTracker manages in-place live progress, real-time delta streaming, and thinking updates on a single Telegram message.
@@ -50,15 +50,12 @@ func defaultActivity(lang string) string {
 	return "Sedang menganalisis & merencanakan..."
 }
 
-// RecordTool updates the current tool action being performed.
+// RecordTool updates the current tool action being performed without artificial truncation.
 func (t *liveTracker) RecordTool(event domain.ToolEvent) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	target := html.EscapeString(event.Target)
-	if len(target) > 60 {
-		target = "..." + target[len(target)-57:]
-	}
 
 	switch event.Kind {
 	case domain.ToolKindCommand:
@@ -69,6 +66,8 @@ func (t *liveTracker) RecordTool(event domain.ToolEvent) {
 		t.lastActivity = fmt.Sprintf("📝 <code>%s</code>", target)
 	case domain.ToolKindWrite:
 		t.lastActivity = fmt.Sprintf("✍️ <code>%s</code>", target)
+	case domain.ToolKindQuestion:
+		t.lastActivity = fmt.Sprintf("❓ <b>%s</b>", target)
 	default:
 		t.lastActivity = fmt.Sprintf("🔧 <code>%s</code>", target)
 	}
@@ -76,7 +75,7 @@ func (t *liveTracker) RecordTool(event domain.ToolEvent) {
 	t.maybeRenderLocked()
 }
 
-// RecordThinking updates the live thinking excerpt.
+// RecordThinking updates the live thinking fulltext and streams immediately.
 func (t *liveTracker) RecordThinking(thinking string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -86,8 +85,9 @@ func (t *liveTracker) RecordThinking(thinking string) {
 		return
 	}
 
-	if len(cleanThinking) > maxLiveThinkingLen {
-		cleanThinking = "..." + cleanThinking[len(cleanThinking)-maxLiveThinkingLen:]
+	// Preserve fulltext thinking up to Telegram's maximum safe character limit
+	if len(cleanThinking) > maxTelegramThinkingLen {
+		cleanThinking = cleanThinking[:maxTelegramThinkingLen] + "\n...(dipotong karena batas pesan Telegram)..."
 	}
 
 	t.lastThinking = cleanThinking
@@ -125,18 +125,32 @@ func (t *liveTracker) maybeRenderLocked() {
 }
 
 func (t *liveTracker) buildProgressHTML() string {
-	// If the agent has started emitting response text deltas, render the response stream live!
+	var sb strings.Builder
+
+	// 1. Fulltext thinking expandable quote block at the top if present
+	if t.lastThinking != "" {
+		escaped := html.EscapeString(t.lastThinking)
+		sb.WriteString(fmt.Sprintf("<blockquote expandable>🧠 <i>%s</i></blockquote>\n\n", escaped))
+	}
+
+	// 2. If the agent has started emitting response text deltas, render the response stream live below thinking!
 	if t.streamBuf.Len() > 0 {
 		currentStream := t.streamBuf.String()
-		if len(currentStream) > 3500 {
-			currentStream = currentStream[:3500] + "\n...(streaming)..."
+		maxStreamLen := 3500 - sb.Len()
+		if maxStreamLen < 500 {
+			maxStreamLen = 500
+		}
+		if len(currentStream) > maxStreamLen {
+			currentStream = currentStream[:maxStreamLen] + "\n...(streaming)..."
 		}
 		// Balance unclosed code blocks if currently mid-stream
 		if strings.Count(currentStream, "```")%2 != 0 {
 			currentStream += "\n```"
 		}
 		htmlText := MarkdownToTelegramHTML(currentStream)
-		return htmlText + " ▍"
+		sb.WriteString(htmlText)
+		sb.WriteString(" ▍")
+		return sb.String()
 	}
 
 	elapsed := int(time.Since(t.startTime).Seconds())
@@ -147,14 +161,8 @@ func (t *liveTracker) buildProgressHTML() string {
 		actLabel = "Activity"
 	}
 
-	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("⏳ <b>%s...</b> (%ds)\n\n", title, elapsed))
-	sb.WriteString(fmt.Sprintf("▫️ <b>%s:</b> %s\n", actLabel, t.lastActivity))
-
-	if t.lastThinking != "" {
-		escaped := html.EscapeString(t.lastThinking)
-		sb.WriteString(fmt.Sprintf("\n<blockquote expandable>🧠 <i>%s</i></blockquote>", escaped))
-	}
+	sb.WriteString(fmt.Sprintf("▫️ <b>%s:</b> %s", actLabel, t.lastActivity))
 
 	return sb.String()
 }

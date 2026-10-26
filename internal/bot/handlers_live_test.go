@@ -69,20 +69,28 @@ func TestLiveTracker_RecordTool(t *testing.T) {
 	}
 }
 
-func TestLiveTracker_RecordThinking_Truncation(t *testing.T) {
+func TestLiveTracker_RecordThinking_FullText(t *testing.T) {
 	tracker := &liveTracker{
 		lang:         "id",
 		startTime:    time.Now(),
 		lastEditTime: time.Now(),
 	}
 
+	// 500 characters should be preserved in full without artificial truncation
 	longThinking := strings.Repeat("A", 500)
 	tracker.RecordThinking(longThinking)
 
-	if len(tracker.lastThinking) > maxLiveThinkingLen+3 {
-		t.Errorf("expected truncated thinking <= %d, got %d", maxLiveThinkingLen+3, len(tracker.lastThinking))
+	if len(tracker.lastThinking) != 500 {
+		t.Errorf("expected fulltext thinking len 500, got %d", len(tracker.lastThinking))
 	}
-	if !strings.HasPrefix(tracker.lastThinking, "...") {
-		t.Errorf("expected thinking to have prefix '...', got %s", tracker.lastThinking[:10])
+	if strings.HasPrefix(tracker.lastThinking, "...") {
+		t.Errorf("expected thinking not to have '...' prefix")
+	}
+
+	// Beyond maxTelegramThinkingLen (3500) should be safely capped to prevent Telegram API errors
+	hugeThinking := strings.Repeat("B", 4000)
+	tracker.RecordThinking(hugeThinking)
+	if len(tracker.lastThinking) <= 3500 {
+		t.Errorf("expected thinking to be capped around maxTelegramThinkingLen")
 	}
 }

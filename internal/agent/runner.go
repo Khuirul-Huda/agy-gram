@@ -119,6 +119,7 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 
 	// Put process into its own process group to ensure clean termination of children
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Stdin = strings.NewReader("")
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -139,92 +140,127 @@ func (r *Runner) Execute(ctx context.Context, opts domain.PromptOptions) (string
 	}
 
 	var (
-		conversationID string
-		finalResponse  string
+		convMu            sync.Mutex
+		conversationID    string
+		finalResponse     string
 		textDeltas        strings.Builder
 		rawStdout         strings.Builder
 		seenToolSteps     = make(map[int]bool)
 		seenThinkingSteps = make(map[int]bool)
+		thinkingMu        sync.Mutex
 	)
 
-	// Stream read stdout line by line
-	scanner := bufio.NewScanner(stdoutPipe)
-	// Support up to 1MB per JSON line
-	scanBuf := make([]byte, 64*1024)
-	scanner.Buffer(scanBuf, 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		rawStdout.WriteString(line)
-		rawStdout.WriteString("\n")
-
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || !strings.HasPrefix(trimmed, "{") {
-			continue
+	getConvID := func() string {
+		convMu.Lock()
+		defer convMu.Unlock()
+		if conversationID != "" {
+			return conversationID
 		}
+		return opts.ConversationID
+	}
 
-		var ev streamEvent
-		if err := json.Unmarshal([]byte(trimmed), &ev); err != nil {
-			continue
-		}
-
-		if ev.ConversationID != "" && conversationID == "" {
-			conversationID = ev.ConversationID
+	setConvID := func(cid string) {
+		convMu.Lock()
+		defer convMu.Unlock()
+		if cid != "" && conversationID == "" {
+			conversationID = cid
 			if opts.OnConversation != nil {
-				opts.OnConversation(conversationID)
-			}
-		}
-
-		if ev.StepUpdate != nil {
-			step := ev.StepUpdate
-			if step.ConversationID != "" && conversationID == "" {
-				conversationID = step.ConversationID
-				if opts.OnConversation != nil {
-					opts.OnConversation(conversationID)
-				}
-			}
-
-			// 1. Real-time thinking polling: stream thinking as soon as it appears in transcript
-			if opts.VerboseThinking && opts.OnThinking != nil && conversationID != "" {
-				for _, th := range pollNewThinking(conversationID, seenThinkingSteps) {
-					opts.OnThinking(th)
-				}
-			}
-
-			// 2. Capture tool executions (run_command, edit_file, write_file, read_file, legacy replace_file_content, write_to_file)
-			if step.StepType == "tool" && step.State == "ACTIVE" {
-				if !seenToolSteps[step.StepIndex] {
-					seenToolSteps[step.StepIndex] = true
-					handleToolStep(step, conversationID, opts)
-				}
-			}
-
-			// Accumulate response text deltas if any
-			if step.StepType == "agent_response" && step.TextDelta != "" {
-				textDeltas.WriteString(step.TextDelta)
-				if opts.OnTextDelta != nil {
-					opts.OnTextDelta(step.TextDelta)
-				}
-			}
-		}
-
-		if ev.Result != nil {
-			if ev.Result.ConversationID != "" {
-				conversationID = ev.Result.ConversationID
-				if opts.OnConversation != nil {
-					opts.OnConversation(conversationID)
-				}
-			}
-			if ev.Result.Response != "" {
-				finalResponse = ev.Result.Response
+				opts.OnConversation(cid)
 			}
 		}
 	}
 
-	// Final check for any remaining thinking blocks
-	if opts.VerboseThinking && opts.OnThinking != nil && conversationID != "" {
-		for _, th := range pollNewThinking(conversationID, seenThinkingSteps) {
-			opts.OnThinking(th)
+	// 1. Background real-time thinking poller: streams thinking immediately as it is written to transcript
+	stopThinking := make(chan struct{})
+	var thinkingWg sync.WaitGroup
+	if opts.VerboseThinking && opts.OnThinking != nil {
+		thinkingWg.Add(1)
+		go func() {
+			defer thinkingWg.Done()
+			ticker := time.NewTicker(350 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					cid := getConvID()
+					if cid != "" {
+						thoughts := pollNewThinking(cid, seenThinkingSteps, &thinkingMu)
+						for _, th := range thoughts {
+							opts.OnThinking(th)
+						}
+					}
+				case <-stopThinking:
+					return
+				}
+			}
+		}()
+	}
+
+	// 2. Stream read stdout using bufio.Reader without arbitrary line length limits (prevents stuck pipe deadlocks)
+	reader := bufio.NewReaderSize(stdoutPipe, 64*1024)
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		if len(line) > 0 {
+			rawStdout.WriteString(line)
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "{") {
+				var ev streamEvent
+				if err := json.Unmarshal([]byte(trimmed), &ev); err == nil {
+					if ev.ConversationID != "" {
+						setConvID(ev.ConversationID)
+					}
+
+					if ev.StepUpdate != nil {
+						step := ev.StepUpdate
+						if step.ConversationID != "" {
+							setConvID(step.ConversationID)
+						}
+
+						// Tool executions (run_command, edit_file, write_file, read_file, ask_question)
+						if step.StepType == "tool" && step.State == "ACTIVE" {
+							if !seenToolSteps[step.StepIndex] {
+								seenToolSteps[step.StepIndex] = true
+								handleToolStep(step, getConvID(), opts)
+							}
+						}
+
+						// Accumulate response text deltas
+						if step.StepType == "agent_response" && step.TextDelta != "" {
+							textDeltas.WriteString(step.TextDelta)
+							if opts.OnTextDelta != nil {
+								opts.OnTextDelta(step.TextDelta)
+							}
+						}
+					}
+
+					if ev.Result != nil {
+						if ev.Result.ConversationID != "" {
+							setConvID(ev.Result.ConversationID)
+						}
+						if ev.Result.Response != "" {
+							finalResponse = ev.Result.Response
+						}
+					}
+				}
+			}
+		}
+
+		if readErr != nil {
+			break
+		}
+	}
+
+	// Stop real-time thinking background poller and run final sweep
+	close(stopThinking)
+	thinkingWg.Wait()
+
+	if opts.VerboseThinking && opts.OnThinking != nil {
+		cid := getConvID()
+		if cid != "" {
+			for _, th := range pollNewThinking(cid, seenThinkingSteps, &thinkingMu) {
+				opts.OnThinking(th)
+			}
 		}
 	}
 
@@ -403,7 +439,7 @@ func (r *Runner) GetUsage(ctx context.Context) (*domain.QuotaInfo, error) {
 }
 
 // pollNewThinking parses new thinking blocks from transcript that haven't been emitted yet.
-func pollNewThinking(convID string, seenSteps map[int]bool) []string {
+func pollNewThinking(convID string, seenSteps map[int]bool, mu *sync.Mutex) []string {
 	if convID == "" {
 		return nil
 	}
@@ -422,24 +458,38 @@ func pollNewThinking(convID string, seenSteps map[int]bool) []string {
 	defer f.Close()
 
 	var newThoughts []string
-	scanner := bufio.NewScanner(f)
-	buf := make([]byte, 64*1024)
-	scanner.Buffer(buf, 2*1024*1024)
+	reader := bufio.NewReaderSize(f, 64*1024)
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		var step struct {
-			StepIndex int    `json:"step_index"`
-			Type      string `json:"type"`
-			Thinking  string `json:"thinking"`
-		}
-		if err := json.Unmarshal(line, &step); err == nil {
-			if step.Type == "PLANNER_RESPONSE" && !seenSteps[step.StepIndex] {
-				seenSteps[step.StepIndex] = true
-				if th := strings.TrimSpace(step.Thinking); th != "" {
-					newThoughts = append(newThoughts, th)
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			var step struct {
+				StepIndex int    `json:"step_index"`
+				Type      string `json:"type"`
+				Thinking  string `json:"thinking"`
+			}
+			if err := json.Unmarshal(line, &step); err == nil {
+				if step.Type == "PLANNER_RESPONSE" {
+					if mu != nil {
+						mu.Lock()
+					}
+					isSeen := seenSteps[step.StepIndex]
+					if !isSeen {
+						seenSteps[step.StepIndex] = true
+					}
+					if mu != nil {
+						mu.Unlock()
+					}
+					if !isSeen {
+						if th := strings.TrimSpace(step.Thinking); th != "" {
+							newThoughts = append(newThoughts, th)
+						}
+					}
 				}
 			}
+		}
+		if readErr != nil {
+			break
 		}
 	}
 

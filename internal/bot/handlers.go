@@ -1021,9 +1021,14 @@ func (h *Handler) handleSteer(c tele.Context, prompt string) error {
 	// Cleanly abort the active process
 	h.runner.CancelCurrent()
 
-	// Wait briefly for previous process group to teardown cleanly
-	for i := 0; i < 10 && h.runner.IsRunning(); i++ {
-		time.Sleep(150 * time.Millisecond)
+	// Wait up to 4s for previous process group to teardown cleanly
+	for i := 0; i < 20 && h.runner.IsRunning(); i++ {
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	if h.runner.IsRunning() {
+		h.runner.CancelCurrent()
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	steeredPrompt := fmt.Sprintf("[ARAHAN BARU / STEER]: %s", prompt)
@@ -1135,6 +1140,8 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 	go h.startTypingTicker(c, stopTyping)
 	defer close(stopTyping)
 
+	var questionOptions []string
+
 	opts := domain.PromptOptions{
 		Prompt:          prompt,
 		ContinueSession: session.ShouldContinue(),
@@ -1153,9 +1160,11 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 		OnCommand: func(cmd string) {
 			isRisky, pattern := agent.IsCommandRisky(cmd)
 			if isRisky {
-				warnMsg := fmt.Sprintf("⚠️ <b>PERINGATAN OPERASI BERISIKO TINGGI:</b>\nPerintah terdeteksi berbahaya (pattern: <code>%s</code>):\n<pre><code class=\"language-bash\">%s</code></pre>", html.EscapeString(pattern), html.EscapeString(cmd))
-				_ = c.Send(warnMsg, tele.ModeHTML)
+				h.notifyRiskyCommand(c, cmd, pattern, lang)
 			}
+		},
+		OnQuestion: func(question string, options []string, isMulti bool) {
+			questionOptions = options
 		},
 		OnFileEdit: func(toolName, targetFile, diff string) {
 			// Tracked live via OnToolEvent
@@ -1188,6 +1197,9 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 
 	// Extract interactive confirmation/choice buttons from output
 	cleanOutput, buttons := ExtractInteractiveButtons(output)
+	if len(buttons) == 0 && len(questionOptions) > 0 {
+		buttons = questionOptions
+	}
 	cleanOutput = fmt.Sprintf("%s\n\n%s", cleanOutput, msgElapsedFooter(lang, elapsed))
 
 	menu := h.buildChoiceMenu(buttons)
@@ -1196,6 +1208,16 @@ func (h *Handler) executePrompt(c tele.Context, prompt string) error {
 	if isPlanResponse(session.GetMode(), output) {
 		menu = h.attachPlanApprovalButtons(menu, lang)
 	}
+
+	// GitOps on-the-go: if uncommitted changes exist in workspace, attach GitOps buttons
+	ws := session.GetWorkspace()
+	if ws == "" {
+		ws = "/home/huda"
+	}
+	menu = h.attachGitOpsButtons(menu, ws, lang)
+
+	// Voice OUT: attach Edge-TTS audio playback button
+	menu = attachTTSButton(menu, lang)
 
 	_ = tracker.OverwriteFinal(c, cleanOutput, menu)
 

@@ -27,6 +27,8 @@ func handleToolStep(step *streamStep, conversationID string, opts domain.PromptO
 		handleWriteFile(step.ToolName, params, step.StepIndex, conversationID, opts)
 	case "read_file":
 		handleReadFile(step.ToolName, params, step.StepIndex, conversationID, opts)
+	case "ask_question":
+		handleAskQuestion(step.ToolName, params, step.StepIndex, conversationID, opts)
 	}
 }
 
@@ -220,5 +222,43 @@ func handleReadFile(toolName string, params map[string]interface{}, stepIndex in
 			Target:   targetFile,
 			Detail:   detail,
 		})
+	}
+}
+
+func handleAskQuestion(toolName string, params map[string]interface{}, stepIndex int, conversationID string, opts domain.PromptOptions) {
+	rawQuestions, _ := params["questions"].([]interface{})
+	if len(rawQuestions) == 0 && conversationID != "" {
+		toolArgs := fetchToolCallDetails(conversationID, stepIndex, "ask_question")
+		rawQuestions, _ = toolArgs["questions"].([]interface{})
+	}
+
+	for _, item := range rawQuestions {
+		qMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		question, _ := qMap["question"].(string)
+		isMulti, _ := qMap["is_multi_select"].(bool)
+		var options []string
+		if rawOpts, ok := qMap["options"].([]interface{}); ok {
+			for _, o := range rawOpts {
+				if s, ok := o.(string); ok && strings.TrimSpace(s) != "" {
+					options = append(options, strings.TrimSpace(s))
+				}
+			}
+		}
+
+		if opts.OnQuestion != nil {
+			opts.OnQuestion(question, options, isMulti)
+		}
+
+		if opts.OnToolEvent != nil {
+			opts.OnToolEvent(domain.ToolEvent{
+				Kind:     domain.ToolKindQuestion,
+				ToolName: toolName,
+				Target:   question,
+				Detail:   strings.Join(options, " | "),
+			})
+		}
 	}
 }

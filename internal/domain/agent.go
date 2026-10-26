@@ -13,14 +13,15 @@ const (
 	ToolKindRead    ToolKind = "read"
 	ToolKindEdit    ToolKind = "edit"
 	ToolKindWrite   ToolKind = "write"
+	ToolKindQuestion ToolKind = "question"
 )
 
 // ToolEvent represents a structured agent tool execution event.
 type ToolEvent struct {
 	Kind     ToolKind
 	ToolName string
-	Target   string // file path or command string
-	Detail   string // diff, description, or parameter details
+	Target   string // file path, command string, or question text
+	Detail   string // diff, description, options, or parameter details
 }
 
 // PromptOptions holds options for sending a prompt to Antigravity CLI.
@@ -40,6 +41,7 @@ type PromptOptions struct {
 	OnThinking      func(thinking string)
 	OnTextDelta     func(delta string)
 	OnConversation  func(conversationID string)
+	OnQuestion      func(question string, options []string, isMulti bool)
 }
 
 // SystemStatus represents host hardware and resource utilization metrics.

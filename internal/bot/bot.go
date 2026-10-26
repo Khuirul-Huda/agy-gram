@@ -80,6 +80,9 @@ func (b *Bot) registerBotCommands() {
 		{Text: "thinking", Description: "Toggle verbose thinking stream"},
 		{Text: "sessions", Description: "Pilih / beralih riwayat sesi percakapan"},
 		{Text: "workspace", Description: "Ganti target direktori kerja AGY"},
+		{Text: "diff", Description: "Lihat uncommitted git diff di workspace"},
+		{Text: "commit", Description: "Commit perubahan git (atau biarkan agy analisa)"},
+		{Text: "undo", Description: "Batalkan perubahan uncommitted git"},
 		{Text: "status", Description: "Cek hardware & status server"},
 		{Text: "usage", Description: "Cek kuota token & limit model AI"},
 		{Text: "restart", Description: "Restart aman service AGY-Gram"},
@@ -165,6 +168,9 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle("/restart", b.handler.HandleRestart)
 	b.teleBot.Handle("/stop", b.handler.HandleCancel)
 	b.teleBot.Handle("/cancel", b.handler.HandleCancel)
+	b.teleBot.Handle("/diff", b.handler.HandleDiff)
+	b.teleBot.Handle("/commit", b.handler.HandleCommit)
+	b.teleBot.Handle("/undo", b.handler.HandleUndo)
 
 	// Inline keyboard callback handlers
 	b.teleBot.Handle(&tele.Btn{Unique: "main_menu"}, b.handler.HandleMenuCallback)
@@ -201,6 +207,10 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle(&tele.Btn{Unique: "plan_approve"}, b.handler.HandlePlanApproveCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "plan_revise"}, b.handler.HandlePlanReviseCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "turn_resume"}, b.handler.HandleTurnResumeCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "git_diff"}, b.handler.HandleGitDiffCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "git_commit"}, b.handler.HandleGitCommitCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "git_undo"}, b.handler.HandleGitUndoCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "voice_tts"}, b.handler.HandleVoiceTTSCallback)
 
 	// Plain text messages routed as agent prompts
 	b.teleBot.Handle(tele.OnText, b.handler.HandlePrompt)
