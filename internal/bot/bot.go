@@ -211,6 +211,14 @@ func (b *Bot) registerRoutes() {
 	b.teleBot.Handle(&tele.Btn{Unique: "git_commit"}, b.handler.HandleGitCommitCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "git_undo"}, b.handler.HandleGitUndoCallback)
 	b.teleBot.Handle(&tele.Btn{Unique: "voice_tts"}, b.handler.HandleVoiceTTSCallback)
+	b.teleBot.Handle(&tele.Btn{Unique: "voice_loading"}, func(c tele.Context) error {
+		session := b.handler.getSession(c)
+		toast := "⏳ Audio sedang diproses, mohon tunggu sebentar..."
+		if session.GetLanguage() == "en" {
+			toast = "⏳ Audio is being processed, please wait..."
+		}
+		return c.Respond(&tele.CallbackResponse{Text: toast})
+	})
 
 	// Plain text messages routed as agent prompts
 	b.teleBot.Handle(tele.OnText, b.handler.HandlePrompt)
