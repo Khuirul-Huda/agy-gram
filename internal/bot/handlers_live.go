@@ -167,7 +167,7 @@ func (t *liveTracker) buildProgressHTML() string {
 	return sb.String()
 }
 
-// OverwriteFinal replaces the live progress message directly with the final agent response.
+// OverwriteFinal replaces the live progress message directly with the final agent response, guaranteed with multi-tier fallbacks.
 func (t *liveTracker) OverwriteFinal(c tele.Context, output string, buttons *tele.ReplyMarkup) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -184,16 +184,36 @@ func (t *liveTracker) OverwriteFinal(c tele.Context, output string, buttons *tel
 	if len(chunks) == 1 && buttons != nil && len(buttons.InlineKeyboard) > 0 {
 		if t.msg != nil {
 			_, err := safeEditMessage(t.bot, t.msg, firstChunkHTML, buttons, tele.ModeHTML)
-			return err
+			if err == nil {
+				return nil
+			}
+			// Fallback 1: try editing as plain text without HTML parse error
+			_, errPlain := safeEditMessage(t.bot, t.msg, chunks[0], buttons)
+			if errPlain == nil {
+				return nil
+			}
 		}
-		return c.Send(firstChunkHTML, buttons, tele.ModeHTML)
+		// Fallback 2: send as new message so the response is NEVER lost
+		if errSend := c.Send(firstChunkHTML, buttons, tele.ModeHTML); errSend == nil {
+			return nil
+		}
+		return c.Send(chunks[0], buttons)
 	}
 
 	// Overwrite first chunk
+	var editErr error
 	if t.msg != nil {
-		_, _ = safeEditMessage(t.bot, t.msg, firstChunkHTML, tele.ModeHTML)
-	} else {
-		_ = c.Send(firstChunkHTML, tele.ModeHTML)
+		_, editErr = safeEditMessage(t.bot, t.msg, firstChunkHTML, tele.ModeHTML)
+		if editErr != nil {
+			// Fallback to plain text edit
+			_, editErr = safeEditMessage(t.bot, t.msg, chunks[0])
+		}
+	}
+	if t.msg == nil || editErr != nil {
+		// Fallback: send as new message
+		if errSend := c.Send(firstChunkHTML, tele.ModeHTML); errSend != nil {
+			_ = c.Send(chunks[0])
+		}
 	}
 
 	// Send remaining chunks
@@ -202,9 +222,13 @@ func (t *liveTracker) OverwriteFinal(c tele.Context, output string, buttons *tel
 		isLast := i == len(chunks)-1
 
 		if isLast && buttons != nil && len(buttons.InlineKeyboard) > 0 {
-			_ = c.Send(chunkHTML, buttons, tele.ModeHTML)
+			if err := c.Send(chunkHTML, buttons, tele.ModeHTML); err != nil {
+				_ = c.Send(chunks[i], buttons)
+			}
 		} else {
-			_ = c.Send(chunkHTML, tele.ModeHTML)
+			if err := c.Send(chunkHTML, tele.ModeHTML); err != nil {
+				_ = c.Send(chunks[i])
+			}
 		}
 	}
 

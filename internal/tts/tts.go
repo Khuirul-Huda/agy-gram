@@ -79,20 +79,35 @@ func (s *Synthesizer) GenerateVoiceNote(ctx context.Context, text, lang, outDir 
 	return outOGG, nil
 }
 
-// cleanTextForSpeech removes markdown symbols, code blocks, and tags so TTS sounds natural.
+// cleanTextForSpeech removes markdown symbols, code blocks, thinking blocks, and tags so TTS sounds natural.
 func cleanTextForSpeech(s string) string {
+	// 1. Remove thinking quotes if present (e.g. 🧠 ... or blockquotes)
+	if idx := strings.Index(s, "🧠"); idx != -1 {
+		afterThinking := s[idx:]
+		if endIdx := strings.Index(afterThinking, "\n\n"); endIdx != -1 {
+			s = afterThinking[endIdx+2:]
+		}
+	}
+
 	cleaned := stripRegex.ReplaceAllString(s, " ")
 	lines := strings.Split(cleaned, "\n")
 	var goodLines []string
 	for _, l := range lines {
 		trimmed := strings.TrimSpace(l)
-		if trimmed != "" {
+		if trimmed != "" && !strings.HasPrefix(trimmed, "⏱️") && !strings.HasPrefix(trimmed, "⏳") {
 			goodLines = append(goodLines, trimmed)
 		}
 	}
 	res := strings.Join(goodLines, ". ")
-	if len(res) > 1000 {
-		res = res[:1000] + "..."
+
+	// Limit to ~450 characters for fast ~8s synthesis on low-power CPUs
+	const maxSpeechLen = 450
+	if len(res) > maxSpeechLen {
+		cut := maxSpeechLen
+		if lastDot := strings.LastIndex(res[:cut], ". "); lastDot > 200 {
+			cut = lastDot + 1
+		}
+		res = res[:cut] + "..."
 	}
 	return strings.TrimSpace(res)
 }

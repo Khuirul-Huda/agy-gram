@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -10,9 +11,9 @@ import (
 	tele "gopkg.in/telebot.v3"
 )
 
-// HandleVoiceTTSCallback generates and delivers an audio voice note for the message.
+// HandleVoiceTTSCallback generates and delivers an audio voice note for the message asynchronously.
 func (h *Handler) HandleVoiceTTSCallback(c tele.Context) error {
-	_ = c.Respond(&tele.CallbackResponse{Text: "Menghasilkan suara Edge-TTS..."})
+	_ = c.Respond(&tele.CallbackResponse{Text: "🎙️ Sedang membuat audio suara..."})
 	if c.Callback() == nil || c.Callback().Message == nil {
 		return nil
 	}
@@ -26,26 +27,36 @@ func (h *Handler) HandleVoiceTTSCallback(c tele.Context) error {
 		ws = "/home/huda"
 	}
 	outDir := filepath.Join(ws, "uploads")
+	bot := c.Bot()
+	recipient := c.Recipient()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
+	// Execute synthesis asynchronously so it never blocks the bot or active agent turns
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
 
-	synth := tts.NewSynthesizer()
-	if !synth.IsAvailable() {
-		return c.Send("❌ Layanan Edge-TTS belum tersedia di server.")
-	}
+		synth := tts.NewSynthesizer()
+		if !synth.IsAvailable() {
+			_, _ = bot.Send(recipient, "❌ Layanan Edge-TTS belum tersedia di server.")
+			return
+		}
 
-	voicePath, err := synth.GenerateVoiceNote(ctx, text, lang, outDir)
-	if err != nil {
-		return c.Send(fmt.Sprintf("❌ Gagal membuat suara: %v", err))
-	}
+		voicePath, err := synth.GenerateVoiceNote(ctx, text, lang, outDir)
+		if err != nil {
+			_, _ = bot.Send(recipient, fmt.Sprintf("❌ Gagal membuat suara: %v", err))
+			return
+		}
+		defer os.Remove(voicePath)
 
-	voice := &tele.Voice{
-		File:    tele.FromDisk(voicePath),
-		Caption: "🔊 <b>Balasan Suara Edge-TTS</b>",
-	}
+		voice := &tele.Voice{
+			File:    tele.FromDisk(voicePath),
+			Caption: "🔊 <b>Balasan Suara Edge-TTS</b>",
+		}
 
-	return c.Send(voice, tele.ModeHTML)
+		_, _ = bot.Send(recipient, voice, tele.ModeHTML)
+	}()
+
+	return nil
 }
 
 // attachTTSButton adds a [🔊 Dengar Suara] button to the reply markup.
